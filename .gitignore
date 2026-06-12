@@ -1,0 +1,72 @@
+# =====================================================
+# HarbourRWA — .gitignore
+# =====================================================
+
+# --- Excluded directories per requirement ---
+document/
+test/
+app/test/
+
+# --- Non-code text/doc files at root ---
+tmpline.txt
+*.txt
+*.srt
+
+# --- Node.js / Next.js ---
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# --- Solidity / Hardhat ---
+app/contracts/cache/
+app/contracts/artifacts/
+app/contracts/typechain-types/
+
+# --- Environment & secrets ---
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+.eggs/
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- IDE ---
+.idea/
+*.suo
+*.user
+
+# --- Misc build / cache ---
+.cache/
+coverage/
+.turbo/
+
+# --- Root-level utility scripts (not part of app code) ---
+/*.py
+/*.ps1
+/*.js
+/*.mjs
+/*.png
+/*.md
+!/README.md

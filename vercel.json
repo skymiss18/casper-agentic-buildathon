@@ -1,0 +1,9 @@
+{
+  "buildCommand": "cd app && npm run build",
+  "outputDirectory": "app/.next",
+  "installCommand": "cd app && npm install",
+  "framework": "nextjs",
+  "env": {
+    "NEXT_PUBLIC_CHAIN_ID": "5003"
+  }
+}

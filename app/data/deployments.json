@@ -1,0 +1,62 @@
+{
+  "ISS-DYN-1780374845055": {
+    "txHash": "0x30e86a0670ca0cb9bdc4e0ca09f8b3579acb63563c6dade636258eeef310a384",
+    "contractAddress": "0x5b92134F804a766C566Ab253F40642F28E9b3007",
+    "blockNumber": 0,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-02",
+    "standard": "ERC-3643",
+    "gasUsed": 0,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0x30e86a0670ca0cb9bdc4e0ca09f8b3579acb63563c6dade636258eeef310a384"
+  },
+  "ISS-DYN-1780814509300": {
+    "txHash": "0xf0127677bc595dfdf02303a2d69e4b5ab43bc1528059d8fbfcaa83a09f398aa8",
+    "contractAddress": "0xd765177190defc7f95f5cdb6df9144238f0b5000",
+    "blockNumber": 39634985,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-07",
+    "standard": "ERC-3643",
+    "gasUsed": 1889653,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0xf0127677bc595dfdf02303a2d69e4b5ab43bc1528059d8fbfcaa83a09f398aa8"
+  },
+  "ISS-DYN-1780816163688": {
+    "txHash": "0xbc13ab1fb874d890c95c0f4624d63a2ae1211db30d7cebab49f6e9c041541244",
+    "contractAddress": "0x1233f870f02053d101693222861c3a4fe48c3420",
+    "blockNumber": 39635770,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-07",
+    "standard": "ERC-3643",
+    "gasUsed": 1889653,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0xbc13ab1fb874d890c95c0f4624d63a2ae1211db30d7cebab49f6e9c041541244"
+  },
+  "ISS-DYN-1780816534839": {
+    "txHash": "0x095f5a1ce3756721511ad7ae3e5e43e53e5fdf14d6d88ba413e3dcbe51700795",
+    "contractAddress": "0xe0832918ffb11c2579a8d1393e374832d7808fe0",
+    "blockNumber": 39635952,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-07",
+    "standard": "ERC-3643",
+    "gasUsed": 1889653,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0x095f5a1ce3756721511ad7ae3e5e43e53e5fdf14d6d88ba413e3dcbe51700795"
+  },
+  "ISS-DYN-1780821975063": {
+    "txHash": "0x3dd50a661719c0858f97d237bae8506bb897af83f32226d9ac2b3e965f0082aa",
+    "contractAddress": "0xd4261c4331ebda5136dd2f915129c65066239f29",
+    "blockNumber": 39638688,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-07",
+    "standard": "ERC-3643",
+    "gasUsed": 1889653,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0x3dd50a661719c0858f97d237bae8506bb897af83f32226d9ac2b3e965f0082aa"
+  },
+  "ISS-DYN-1780822819093": {
+    "txHash": "0xbba7c0addfe09feae5627be102ad425ef05afd4cf03d7f017c08d63a20b511a5",
+    "contractAddress": "0x4c9341431323413dcafbf8328ad675ea32635604",
+    "blockNumber": 39639120,
+    "network": "Mantle Sepolia",
+    "deployedAt": "2026-06-07",
+    "standard": "ERC-3643",
+    "gasUsed": 1889653,
+    "explorerUrl": "https://sepolia.mantlescan.xyz/tx/0xbba7c0addfe09feae5627be102ad425ef05afd4cf03d7f017c08d63a20b511a5"
+  }
+}
