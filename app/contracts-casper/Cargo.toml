@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "compliance-oracle",
+    "identity-registry",
+]
+resolver = "2"

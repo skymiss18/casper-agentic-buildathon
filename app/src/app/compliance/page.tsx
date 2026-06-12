@@ -52,6 +52,8 @@ interface ComplianceResult {
 
   txHash: string | null;
 
+  explorerUrl?: string | null;
+
   reportHash?: string;
 
   timestamp: string;
@@ -1232,7 +1234,7 @@ export default function CompliancePage() {
 
               {result.onChain && result.txHash && (
 
-                <a href={`https://sepolia.mantlescan.xyz/tx/${result.txHash}`} target="_blank" rel="noopener noreferrer"
+                <a href={result.explorerUrl ?? `https://sepolia.mantlescan.xyz/tx/${result.txHash}`} target="_blank" rel="noopener noreferrer"
 
                   className="text-[11px] font-mono text-blue-400 hover:text-blue-300 transition-colors">
 

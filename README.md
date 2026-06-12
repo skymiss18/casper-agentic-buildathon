@@ -194,3 +194,86 @@ AI Layer (SiliconFlow / OpenAI)
 
 
 HarbourRWA shows a credible path for AI in regulated finance: not replacing human oversight, but structuring decisions and turning approved outcomes into on-chain infrastructure. That is the difference between a tokenization demo and a usable RWA system.
+
+---
+
+## **Casper Agentic Buildathon — Integration Notes**
+
+HarbourRWA has been extended with a **Casper Network** on-chain layer for the Casper Agentic Buildathon 2026.
+
+### Architecture
+
+The compliance oracle write path supports two blockchains in parallel:
+
+| Setting | Chain | Contract |
+|---------|-------|---------|
+| `NEXT_PUBLIC_ORACLE_CHAIN=mantle` (default) | Mantle Sepolia | `ComplianceOracle.sol` |
+| `NEXT_PUBLIC_ORACLE_CHAIN=casper` | Casper Testnet | `compliance_oracle` Odra/Rust contract |
+
+### Casper Smart Contracts
+
+Located in `app/contracts-casper/`:
+
+- **`compliance-oracle/`** — Rust/Odra port of `ComplianceOracle.sol`.  
+  Entry points: `init`, `submit_score(asset_id, score, report_hash)`, `get_score(asset_id)`, `is_compliant(asset_id, threshold)`, `transfer_ownership`
+- **`identity-registry/`** — Rust/Odra port of `IdentityRegistry.sol`.  
+  Entry points: `init`, `upsert_investor(...)`, `revoke_investor(address)`, `get_investor(address)`, `is_eligible(address)`, `transfer_officer`
+
+### Building the WASM Contracts
+
+**On Linux / macOS** (recommended — no linker issues):
+```bash
+cargo install cargo-odra --locked
+cd app/contracts-casper/compliance-oracle
+cargo odra test          # unit tests
+cargo odra build -b casper   # → wasm/
+
+cd ../identity-registry
+cargo odra test
+cargo odra build -b casper
+```
+
+**Via GitHub Actions** (works from Windows too):
+1. Push code to GitHub (repo must be public or have Actions enabled)
+2. Go to **Actions → Build Casper WASM Contracts → Run workflow**
+3. Download the `casper-contract-wasm` artifact
+4. Two `.wasm` files will be in the zip
+
+### Deploying to Casper Testnet
+
+```powershell
+# Windows
+.\deploy-casper-contracts.ps1 -AccountKey <ed25519-hex> -PublicKey <pub-hex>
+```
+
+```bash
+# Linux/macOS — after building WASM
+casper-client put-deploy \
+  --node-address https://rpc.testnet.casperlabs.io \
+  --chain-name casper-test \
+  --secret-key-hex <key> \
+  --payment-amount 50000000000 \
+  --session-path wasm/compliance_oracle_build_contract.wasm
+```
+
+Get testnet CSPR from: https://testnet.cspr.live/tools/faucet
+
+### Environment Variables (Casper mode)
+
+Add to `app/.env.local`:
+
+```env
+NEXT_PUBLIC_ORACLE_CHAIN=casper
+CASPER_ORACLE_KEY=<ed25519-private-key-hex>
+CASPER_ORACLE_PUBLIC_KEY=<ed25519-public-key-hex>
+CASPER_COMPLIANCE_ORACLE_HASH=contract-<hash>
+CASPER_IDENTITY_REGISTRY_HASH=contract-<hash>
+CASPER_CHAIN_NAME=casper-test
+```
+
+### Casper Frontend Integration
+
+`app/src/lib/casper-chain.ts` handles:
+- Building and signing Casper deploys from the oracle backend
+- Reading contract state via CSPR.cloud REST API
+- Generating explorer links to `testnet.cspr.live`
