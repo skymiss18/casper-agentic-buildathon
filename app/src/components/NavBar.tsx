@@ -9,7 +9,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 // Issuer — the entity that owns the underlying real-world asset
 // Responsible for: initiating tokenization + the offering memorandum (legally the issuer's document)
 const ISSUER_LINKS = [
-  { href: "/tokenize",   step: "1", label: "Tokenise Asset",   desc: "Structure, audit & deploy ERC-3643 token on Mantle", isTool: false },
+  { href: "/tokenize",   step: "1", label: "Tokenise Asset",   desc: "Structure, audit & register issuance on Casper", isTool: false },
   { href: "/prospectus", step: "2", label: "Draft Prospectus", desc: "AI-assisted SFC-compliant offering memorandum",      isTool: false },
 ];
 
@@ -193,10 +193,8 @@ export default function NavBar() {
   const intermediaryActive = [...INTERMEDIARY_LINKS].sort((a, b) => b.href.length - a.href.length).find((l) => pathname.startsWith(l.href))?.href ?? null;
   const regulatorActive    = [...REGULATOR_LINKS].sort((a, b) => b.href.length - a.href.length).find((l) => pathname.startsWith(l.href))?.href ?? null;
 
-  const chainId     = process.env.NEXT_PUBLIC_CHAIN_ID ?? "5003";
-  const isMainnet   = chainId === "5000";
-  const chainName   = isMainnet ? "Mantle" : "Mantle Sepolia";
-  const explorerUrl = isMainnet ? "https://mantlescan.xyz" : "https://sepolia.mantlescan.xyz";
+  const chainName   = "Casper Testnet";
+  const explorerUrl = "https://testnet.cspr.live/";
 
   return (
     <nav

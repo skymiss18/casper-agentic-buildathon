@@ -18,7 +18,7 @@ export default function HomePage() {
           </h1>
           <p className="text-[15px] leading-relaxed mb-10 max-w-[480px]" style={{ color: "#555555" }}>
             The first RWA infrastructure stack where AI compliance scores are written to
-            Mantle — gating every mint and every transfer. From prospectus review to
+            Casper — gating every mint and every transfer. From prospectus review to
             on-chain coupon claims, the full lifecycle runs on-chain.
           </p>
           <div className="flex flex-wrap items-center gap-3 mb-14">
@@ -36,7 +36,7 @@ export default function HomePage() {
           <div className="grid grid-cols-3 gap-0 rounded-xl overflow-hidden" style={{ border: "1px solid rgba(0,0,0,0.10)", background: "#ffffff" }}>
             <div className="px-5 py-4" style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>
               <div className="text-[22px] font-bold leading-none mb-1.5" style={{ color: "#111111", letterSpacing: "-0.02em", fontFamily: "'Lora', Georgia, serif" }}>5</div>
-              <div className="text-[11px]" style={{ color: "#888888" }}>Smart contracts on Mantle</div>
+              <div className="text-[11px]" style={{ color: "#888888" }}>Smart contracts on Casper</div>
             </div>
             <div className="px-5 py-4" style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>
               <div className="text-[22px] font-bold leading-none mb-1.5" style={{ color: "#111111", letterSpacing: "-0.02em", fontFamily: "'Lora', Georgia, serif" }}>4</div>
@@ -62,7 +62,7 @@ export default function HomePage() {
                   <div className="text-[17px] font-semibold leading-snug" style={{ color: "#111111", fontFamily: "'Lora', Georgia, serif" }}>
                     Harbour Infrastructure<br />Bond Token
                   </div>
-                  <div className="text-[11px] mt-1" style={{ color: "#888888" }}>Mantle Sepolia Testnet · Series 2026-B</div>
+                  <div className="text-[11px] mt-1" style={{ color: "#888888" }}>Casper Sepolia Testnet · Series 2026-B</div>
                 </div>
                 <span className="text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1.5"
                   style={{ background: "rgba(22,163,74,0.08)", border: "1px solid rgba(22,163,74,0.20)", color: "#16a34a" }}>
@@ -80,8 +80,8 @@ export default function HomePage() {
                   { k: "Total Issue",  v: "USD 100,000,000",                           hi: false },
                   { k: "Min. Sub",     v: "USD 20,000 (20 tokens)",                   hi: false },
                   { k: "AI Score",     v: "85 / 100 · PASSED",                        hi: true  },
-                  { k: "Oracle",       v: "ComplianceOracle.sol on Mantle",            hi: true  },
-                  { k: "Settlement",   v: "Mantle Sepolia · Chain ID 5003",            hi: false },
+                  { k: "Oracle",       v: "ComplianceOracle.sol on Casper",            hi: true  },
+                  { k: "Settlement",   v: "Casper Sepolia · Chain ID 5003",            hi: false },
                 ].map(({ k, v, hi }) => (
                   <div key={k} className="flex items-center justify-between py-2.5 text-xs"
                     style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
@@ -122,7 +122,7 @@ export default function HomePage() {
               ),
               title: "AI Score → On-Chain Oracle",
               label: "Technical Depth",
-              body: "AI analyses the prospectus against SFC rules and writes a numeric score to ComplianceOracle.sol on Mantle. Any wallet below 70/100 cannot mint — enforced automatically at the smart contract level, not by a human reviewer.",
+              body: "AI analyses the prospectus against SFC rules and writes a numeric score to ComplianceOracle.sol on Casper. Any wallet below 70/100 cannot mint — enforced automatically at the smart contract level, not by a human reviewer.",
               link: "/compliance",
               cta: "Run compliance check →",
             },
@@ -155,8 +155,8 @@ export default function HomePage() {
                 </svg>
               ),
               title: "Full Yield Life-Cycle On-Chain",
-              label: "Mantle Ecosystem",
-              body: "Coupon funds are deposited in USDY on Mantle, auto-compounding until payment date. Investors claim coupons on-chain. Idle capital routes to mETH for additional yield. No off-chain bank wires for coupon servicing.",
+              label: "Casper Ecosystem",
+              body: "Coupon funds are deposited in USDY on Casper, auto-compounding until payment date. Investors claim coupons on-chain. Idle capital routes to mETH for additional yield. No off-chain bank wires for coupon servicing.",
               link: "/portfolio",
               cta: "View portfolio →",
             },
@@ -201,8 +201,8 @@ export default function HomePage() {
               actor: "Type 6 LC Intermediary",
               actorColor: "#f59e0b",
               title: "Score Written On-Chain",
-              desc: "The licensed intermediary reviews AI findings and submits the compliance score to ComplianceOracle.sol on Mantle. Score below 70 blocks issuance — no override, no workaround.",
-              ai: "submitScore() → Mantle",
+              desc: "The licensed intermediary reviews AI findings and submits the compliance score to ComplianceOracle.sol on Casper. Score below 70 blocks issuance — no override, no workaround.",
+              ai: "submitScore() → Casper",
             },
             {
               n: "03",
@@ -217,8 +217,8 @@ export default function HomePage() {
               actor: "On-Chain Servicing",
               actorColor: "#7c3aed",
               title: "Coupon Funding & Claim",
-              desc: "Issuer funds the coupon schedule in USDY on Mantle. On payment date, investors call claimDividend() to receive yield directly to their wallet. Idle capital auto-routes to mETH between payment periods.",
-              ai: "USDY + mETH yield on Mantle",
+              desc: "Issuer funds the coupon schedule in USDY on Casper. On payment date, investors call claimDividend() to receive yield directly to their wallet. Idle capital auto-routes to mETH between payment periods.",
+              ai: "USDY + mETH yield on Casper",
             },
           ].map((s, i) => (
             <div key={s.n} className="pr-8 pl-4 py-6"
@@ -269,8 +269,8 @@ export default function HomePage() {
             <ol className="space-y-3">
               {[
                 { step: "1", href: "/prospectus", label: "Draft Prospectus",      desc: "AI-assisted SFC-compliant offering memorandum" },
-                { step: "2", href: "/compliance", label: "AI Compliance Check",   desc: "Score prospectus — result written to Mantle oracle" },
-                { step: "3", href: "/tokenize",   label: "Tokenise & Deploy",     desc: "Deploy ERC-3643 token with yield routing on Mantle" },
+                { step: "2", href: "/compliance", label: "AI Compliance Check",   desc: "Score prospectus — result written to Casper oracle" },
+                { step: "3", href: "/tokenize",   label: "Tokenise & Deploy",     desc: "Deploy ERC-3643 token with yield routing on Casper" },
               ].map(({ step, href, label, desc }) => (
                 <li key={step}>
                   <a href={href} className="flex items-start gap-3 group">
@@ -411,24 +411,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── S5: Mantle ecosystem integration ── */}
+      {/* ── S5: Casper ecosystem integration ── */}
       <section className="py-16 section-divider">
         <div className="mb-8">
-          <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "#aaaaaa" }}>Mantle ecosystem</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "#aaaaaa" }}>Casper ecosystem</p>
           <h2 className="text-2xl mb-1" style={{ color: "#111111", letterSpacing: "-0.02em", fontFamily: "'Lora', Georgia, serif", fontWeight: 600 }}>
-            Deep integration with Mantle&apos;s native protocols
+            Deep integration with Casper&apos;s native protocols
           </h2>
-          <p className="text-sm" style={{ color: "#777777" }}>Not just deployed on Mantle — built around it.</p>
+          <p className="text-sm" style={{ color: "#777777" }}>Not just deployed on Casper — built around it.</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             {
-              name: "Mantle Network",
+              name: "Casper Network",
               color: "#1a56db",
               bg: "rgba(26,86,219,0.06)",
               border: "rgba(26,86,219,0.15)",
               role: "Execution & Settlement Layer",
-              detail: "All 5 smart contracts deployed on Mantle. ERC-3643 token mint, compliance gating, and T+2 atomic settlement — all on-chain.",
+              detail: "All 5 smart contracts deployed on Casper. ERC-3643 token mint, compliance gating, and T+2 atomic settlement — all on-chain.",
             },
             {
               name: "USDY · Ondo Finance",
@@ -488,10 +488,10 @@ export default function HomePage() {
             </thead>
             <tbody>
               {[
-                { name: "Asia REIT",         color: "#16a34a", rules: "SFC REIT Code + tokenisation circular",   yield_: "Quarterly div · USDY autocompound",  settle: "T+2 · Mantle", demo: "/tokenize" },
-                { name: "Corporate Bond",   color: "#1a56db", rules: "SFO s.103 + bond trust deed",            yield_: "Semi-annual coupon · mETH routing",  settle: "T+2 · Mantle", demo: "/subscribe" },
-                { name: "Green Bond",       color: "#0d9488", rules: "ICMA GBP + ESG SFC certification",       yield_: "Semi-annual coupon · USDY",          settle: "T+2 · Mantle", demo: "/tokenize" },
-                { name: "Trade Receivable", color: "#7c3aed", rules: "Invoice + contract AI cross-validation", yield_: "Receivable maturity proceeds",        settle: "T+0 · Mantle", demo: "/compliance" },
+                { name: "Asia REIT",         color: "#16a34a", rules: "SFC REIT Code + tokenisation circular",   yield_: "Quarterly div · USDY autocompound",  settle: "T+2 · Casper", demo: "/tokenize" },
+                { name: "Corporate Bond",   color: "#1a56db", rules: "SFO s.103 + bond trust deed",            yield_: "Semi-annual coupon · mETH routing",  settle: "T+2 · Casper", demo: "/subscribe" },
+                { name: "Green Bond",       color: "#0d9488", rules: "ICMA GBP + ESG SFC certification",       yield_: "Semi-annual coupon · USDY",          settle: "T+2 · Casper", demo: "/tokenize" },
+                { name: "Trade Receivable", color: "#7c3aed", rules: "Invoice + contract AI cross-validation", yield_: "Receivable maturity proceeds",        settle: "T+0 · Casper", demo: "/compliance" },
               ].map((row) => (
                 <tr key={row.name} style={{ borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
                   <td className="py-4 pr-6 font-semibold text-sm" style={{ color: row.color }}>{row.name}</td>
@@ -517,12 +517,12 @@ export default function HomePage() {
               5 contracts, one compliance-gated pipeline
             </h2>
             <p className="text-[14px] leading-relaxed mb-6" style={{ color: "#666666" }}>
-              Deployed on Mantle Sepolia Testnet (Chain ID 5003). AI powered by Qwen2.5-72B
+              Deployed on Casper Sepolia Testnet (Chain ID 5003). AI powered by Qwen2.5-72B
               via DashScope. Prospectus documents committed to EigenDA with on-chain hash
               anchoring in ComplianceOracle. Full open-source codebase.
             </p>
             <div className="flex flex-wrap gap-2">
-              {["Mantle Network", "ERC-3643", "Qwen2.5-72B", "EigenDA", "USDY (Ondo)", "mETH Protocol", "viem · wagmi · RainbowKit"].map((t) => (
+              {["Casper Network", "ERC-3643", "Qwen2.5-72B", "EigenDA", "USDY (Ondo)", "mETH Protocol", "viem · wagmi · RainbowKit"].map((t) => (
                 <span key={t} className="text-[11px] px-2.5 py-1 rounded-md"
                   style={{ border: "1px solid rgba(0,0,0,0.10)", color: "#666666", background: "#ffffff" }}>
                   {t}
@@ -558,7 +558,7 @@ export default function HomePage() {
             See the full pipeline in action
           </h2>
           <p className="text-sm max-w-md mx-auto mb-8 leading-relaxed" style={{ color: "#666666" }}>
-            AI compliance check → score anchored on Mantle → KYC-gated mint →
+            AI compliance check → score anchored on Casper → KYC-gated mint →
             USDY coupon claim. The complete RWA life-cycle, end-to-end.
           </p>
           <div className="flex justify-center gap-3">

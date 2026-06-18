@@ -75,3 +75,12 @@ coverage/
 /*.png
 /*.md
 !/README.md
+
+# --- Rust build artifacts ---
+app/contracts-casper/target/
+app/contracts-casper/.cargo/
+app/contracts-casper/Cargo.lock
+
+# --- Scratch / debug files ---
+app/src/lib/casper-token-deploy.ts.orig
+app/test-deploy-server.cjs

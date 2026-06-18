@@ -678,7 +678,7 @@ export default function KYCPage() {
 
           <div>
             <label className="block text-xs text-slate-400 font-medium mb-1.5">
-              Mantle Network Wallet Address <span className="text-red-400">*</span>
+              Casper Network Wallet Address <span className="text-red-400">*</span>
             </label>
             <p className="text-[11px] text-slate-500 mb-1 leading-relaxed">
               Your wallet address is like your bank account number on the blockchain ...it starts with ...x...and is 42 characters long.
@@ -767,7 +767,7 @@ export default function KYCPage() {
               />
               <label htmlFor="consent-retention" className="text-xs text-slate-400 leading-relaxed cursor-pointer">
                 I acknowledge that KYC records will be retained for a minimum of 7 years per AMLO
-                requirements, and that my wallet address will be permanently recorded on Mantle Network
+                requirements, and that my wallet address will be permanently recorded on Casper Network
                 blockchain in the{" "}
                 <code className="text-blue-400">IdentityRegistry.sol</code> contract.
               </label>

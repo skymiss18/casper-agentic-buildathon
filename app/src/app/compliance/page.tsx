@@ -1234,7 +1234,7 @@ export default function CompliancePage() {
 
               {result.onChain && result.txHash && (
 
-                <a href={result.explorerUrl ?? `https://sepolia.mantlescan.xyz/tx/${result.txHash}`} target="_blank" rel="noopener noreferrer"
+                <a href={result.explorerUrl ?? `https://testnet.cspr.live/deploy/${result.txHash}`} target="_blank" rel="noopener noreferrer"
 
                   className="text-[11px] font-mono text-blue-400 hover:text-blue-300 transition-colors">
 
@@ -1413,7 +1413,7 @@ export default function CompliancePage() {
 
           {/* Submit to SFC CTA — shown when score is submitted on-chain and passed */}
 
-          {result.passed && result.onChain && (
+          {result.passed && (
 
             <div className="pt-5 mt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}>
               {sfcSubmitted ? (
@@ -1429,8 +1429,9 @@ export default function CompliancePage() {
               ) : (
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-600">
-                    Score recorded on <code className="text-blue-400">ComplianceOracle.sol</code>.
-                    Submit to SFC for issuance authorisation.
+                    {result.onChain
+                      ? <>Score recorded on <code className="text-blue-400">ComplianceOracle</code>. Submit to SFC for issuance authorisation.</>
+                      : <>Compliance check passed. Submit to SFC for issuance authorisation.</>}
                   </div>
                   <button
                     onClick={() => void submitToSFC(result.score, result.reportHash ?? "", text)}

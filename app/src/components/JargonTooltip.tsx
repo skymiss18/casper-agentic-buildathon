@@ -58,9 +58,9 @@ const GLOSSARY: Record<string, { label: string; definition: string }> = {
       "A unique ID assigned to every blockchain transaction — like a receipt number that lets anyone verify the transaction happened on a public blockchain explorer.",
   },
   mantle: {
-    label: "Mantle Network",
+    label: "Casper Network",
     definition:
-      "A Layer-2 blockchain built on Ethereum — offering faster and cheaper transactions while inheriting Ethereum's security. HarbourRWA uses Mantle Testnet for this demo.",
+      "A Layer-2 blockchain built on Ethereum — offering faster and cheaper transactions while inheriting Ethereum's security. HarbourRWA uses Casper Testnet for this demo.",
   },
   "swift-bic": {
     label: "SWIFT BIC",

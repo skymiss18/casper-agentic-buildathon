@@ -32,13 +32,13 @@ The prospectus MUST include all of these sections in order:
 1. IMPORTANT NOTICE — Professional investors only (SFO s.14A), jurisdiction disclaimers, not for US persons
 2. EXECUTIVE SUMMARY — Asset type, issuer, key terms overview
 3. ISSUER INFORMATION — Company details, SFC authorisation, regulatory status, track record
-4. KEY TERMS — Token details, face value, coupon/yield/distribution rate, maturity/redemption, unit price, minimum subscription, lock-up period, settlement (T+2 on Mantle Network, Chain ID 5000)
+4. KEY TERMS — Token details, face value, coupon/yield/distribution rate, maturity/redemption, unit price, minimum subscription, lock-up period, settlement on Casper Network
 5. USE OF PROCEEDS — How funds will be deployed, project description, green framework if applicable
 6. RISK FACTORS — Minimum 6 specific risks drawn from provided risk factors (market risk, liquidity risk, smart contract risk, regulatory risk, concentration risk, currency risk, credit risk as applicable)
-7. SFC TOKENISATION COMPLIANCE — ERC-3643 T-REX standard, IdentityRegistry.sol on-chain KYC gating, ComplianceOracle.sol scoring, ComplianceModule.sol transfer controls
+7. SFC TOKENISATION COMPLIANCE — Casper-native issuance workflow, identity-registry KYC gating, compliance-oracle scoring, transfer controls
 8. KYC / AML REQUIREMENTS — AMLO Cap.615 compliance, Professional Investor eligibility (HKD 8M liquid assets or HKD 40M portfolio), on-chain identity registry
 9. SUBSCRIPTION PROCEDURE — Minimum subscription amount, subscription period, payment instructions, allocation process
-10. ON-CHAIN SETTLEMENT — Mantle Network infrastructure, ERC-3643 transfer restrictions, YieldAggregator.sol coupon/distribution routing
+10. ON-CHAIN SETTLEMENT — Casper Network infrastructure, identity-registry transfer restrictions, coupon/distribution routing
 
 Write in formal legal English. Include all specific figures provided by the user. Length: 1000–1400 words. Output plain text only. Use clear section headings in ALL CAPS.`;
 
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       rating             ? `Credit Rating:       ${rating}` : null,
       `Settlement Ccy:      ${cur}`,
       `Issue Date:          ${issueDate}`,
-      `Token Standard:      ERC-3643 (T-REX) on Mantle Network (Chain ID 5000)`,
+      `Token Standard:      Casper-native RWA issuance on Casper Network`,
       description        ? `Asset Description:   ${description}` : null,
       useOfProceeds      ? `Use of Proceeds:     ${useOfProceeds}` : null,
       greenPurpose       ? `Green Use of Proceeds: ${greenPurpose}` : null,

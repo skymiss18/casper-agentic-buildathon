@@ -7,7 +7,7 @@ export const mantleTestnet = defineChain({
   name: "Mantle Sepolia Testnet",
   nativeCurrency: { name: "MNT", symbol: "MNT", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.MANTLE_TESTNET_RPC ?? "https://rpc.sepolia.mantle.xyz"] },
+    default: { http: [process.env.MANTLE_TESTNET_RPC ?? "https://mantle-sepolia.drpc.org"] },
   },
   blockExplorers: {
     default: { name: "MantleScan", url: "https://sepolia.mantlescan.xyz" },

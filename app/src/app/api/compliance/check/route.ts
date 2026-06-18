@@ -53,20 +53,22 @@ export async function POST(req: NextRequest) {
     const casperHash = process.env.CASPER_COMPLIANCE_ORACLE_HASH;
     const isMantle = !!privateKey && oracleAddr !== "0x0000000000000000000000000000000000000000";
     const isCasper = !!casperKey && !!casperHash;
-    const isConfigured = isMantle || isCasper;
+    const selectedOracleChain = process.env.NEXT_PUBLIC_ORACLE_CHAIN === "mantle" ? "mantle" : "casper";
+    const isConfigured = selectedOracleChain === "casper" ? isCasper : isMantle;
     const reportHash = makeReportHash(reportPayload);
 
     let txHash: string | null = null;
     let explorerUrl: string | null = null;
     if (isConfigured) {
-      const onChainResult = await submitScoreOnChain(assetId, result.score, reportPayload);
+      const onChainResult = await submitScoreOnChain(assetId, result.score, reportPayload, assetName);
       txHash = onChainResult.txHash;
       explorerUrl = onChainResult.explorerUrl ?? null;
     }
 
     if (!explorerUrl && txHash) {
-      const isMainnet = process.env.NEXT_PUBLIC_CHAIN_ID === "5000";
-      explorerUrl = `${isMainnet ? "https://mantlescan.xyz" : "https://sepolia.mantlescan.xyz"}/tx/${txHash}`;
+      explorerUrl = process.env.NEXT_PUBLIC_ORACLE_CHAIN === "casper"
+        ? `https://testnet.cspr.live/deploy/${txHash}`
+        : null;
     }
 
     return NextResponse.json({

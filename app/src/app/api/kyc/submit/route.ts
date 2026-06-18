@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       onChain: !!txHash,
       txHash,
       message: txHash
-        ? "KYC successfully registered on Mantle"
+        ? "KYC successfully registered on Casper"
         : "KYC validated (contracts not yet deployed — deploy first)",
     });
   } catch (err) {

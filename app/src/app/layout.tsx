@@ -6,7 +6,7 @@ import Providers from "@/components/Providers";
 export const metadata: Metadata = {
   title: "HarbourRWA | Institutional RWA Tokenisation Platform",
   description:
-    "Enterprise-grade RWA tokenisation platform for professional investors. SFC compliant on Mantle Network.",
+    "Enterprise-grade RWA tokenisation platform for professional investors. SFC compliant on Casper Network.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -46,7 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="flex items-center gap-5">
                 <span className="flex items-center gap-1.5">
                   <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                  Mantle Network
+                  Casper Network
                 </span>
                 <span>SFC Circular (Oct 2023)</span>
                 <span>Turing Test Hackathon 2026</span>

@@ -1,7 +1,7 @@
 /**
  * casper-chain.ts
  *
- * Casper Network integration layer — mirrors chain.ts (Mantle/EVM) but for Casper.
+ * Casper Network integration layer — mirrors the legacy EVM helper shape for Casper.
  *
  * Architecture:
  *  - submitScoreCasper()  → called from API route, signs with CASPER_ORACLE_KEY env var
@@ -45,16 +45,39 @@ export const CASPER_COMPLIANCE_THRESHOLD = 70;
 /** Gas payment amount for a simple named-key write (~50 CSPR is generous) */
 const PAYMENT_MOTES = "5000000000"; // 5 CSPR expressed in motes (1 CSPR = 10^9 motes)
 
-// ── RPC client (singleton) ────────────────────────────────────────────────────
+// ── RPC client (singleton + fallback list) ────────────────────────────────────
+
+/** Fallback testnet nodes in priority order (used when primary RPC returns 413) */
+const FALLBACK_RPCS = [
+  "http://51.161.87.206:7777/rpc",
+  "http://65.109.95.50:7777/rpc",
+];
 
 let _rpcClient: RpcClient | null = null;
+let _rpcClientUrl: string | null = null;
 
 export function getCasperRpcClient(): RpcClient {
-  if (!_rpcClient) {
-    const url = process.env.CASPER_RPC_URL ?? DEFAULT_RPC;
+  const url = process.env.CASPER_RPC_URL ?? DEFAULT_RPC;
+  if (!_rpcClient || _rpcClientUrl !== url) {
     _rpcClient = new RpcClient(new HttpHandler(url));
+    _rpcClientUrl = url;
   }
   return _rpcClient;
+}
+
+/** Returns an RpcClient for the given URL (not cached as singleton) */
+export function getCasperRpcClientForUrl(url: string): RpcClient {
+  return new RpcClient(new HttpHandler(url));
+}
+
+/** Returns all RPC URLs to try in order: primary first, then fallbacks */
+export function getCasperRpcUrls(): string[] {
+  const primary = process.env.CASPER_RPC_URL ?? DEFAULT_RPC;
+  const extras = (process.env.CASPER_FALLBACK_RPC_URLS ?? "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  const all = [primary, ...extras, ...FALLBACK_RPCS];
+  // Deduplicate preserving order
+  return all.filter((u, i) => all.indexOf(u) === i);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -213,8 +236,14 @@ export async function isCompliantCasper(
   return record.score >= threshold;
 }
 
-// ── Utility: Casper explorer link ──────────────────────────────────────────────
+// ── Utility: Casper explorer links ─────────────────────────────────────────────
 
+/** TransactionV1 (created via SessionBuilder / casper-js-sdk v5) — CSPR.live indexes all txs under /deploy/ */
+export function casperExplorerTransactionUrl(txHash: string): string {
+  return `https://testnet.cspr.live/deploy/${txHash}`;
+}
+
+/** Legacy Deploy 1.x (created via Deploy.makeDeploy) — use /deploy/ path */
 export function casperExplorerDeployUrl(deployHash: string): string {
   return `https://testnet.cspr.live/deploy/${deployHash}`;
 }

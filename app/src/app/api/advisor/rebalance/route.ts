@@ -52,10 +52,10 @@ async function getAIAllocation(
     };
   }
 
-  const prompt = `You are a DeFi yield optimizer for an institutional RWA platform on Mantle Network.
+  const prompt = `You are a DeFi yield optimizer for an institutional RWA platform on Casper Network.
 Current APY rates:
 - USDY (Ondo Finance, USD T-bill backed): ${(usdyApy / 100).toFixed(2)}% APY
-- mETH (Mantle ETH staking): ${(methApy / 100).toFixed(2)}% APY
+- mETH (Casper ETH staking): ${(methApy / 100).toFixed(2)}% APY
 
 Investor risk profile: ${riskProfile}
 
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
       rationale,
       onChain,
       txHash,
-      explorerUrl: txHash ? `https://sepolia.mantlescan.xyz/tx/${txHash}` : null,
+      explorerUrl: txHash ? `https://testnet.cspr.live/deploy/${txHash}` : null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

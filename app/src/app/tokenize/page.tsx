@@ -1,10 +1,6 @@
 ﻿"use client";
 import { useState, useEffect } from "react";
-import { createPublicClient, encodeAbiParameters, http, keccak256, parseAbiParameters } from "viem";
-import { mantleSepoliaTestnet, mantle } from "viem/chains";
-import { useAccount, useSwitchChain, useWalletClient } from "wagmi";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
-import artifact from "@/contracts/artifacts/contracts/HarbourRWAToken.sol/HarbourRWAToken.json";
+import { getCasperWalletProvider } from "@/lib/casper-wallet";
 
 type AssetType = "Bond" | "GreenBond" | "REIT" | "TradeReceivable";
 const ASSET_TYPES: { value: AssetType; label: string }[] = [
@@ -37,14 +33,22 @@ interface SFCRecord {
 }
 
 interface DeployResult {
-  txHash: string;
-  contractAddress: string;
-  blockNumber: number;
+  txHash?: string;
+  deployHash?: string;
+  registrationId?: string;
+  assetId?: string;
+  assetName?: string;
+  symbol?: string;
+  contractHash?: string;
+  contractAddress?: string;
+  blockNumber?: number | null;
   network: string;
   deployedAt: string;
   standard: string;
-  gasUsed: number;
-  explorerUrl: string;
+  gasUsed?: number | null;
+  explorerUrl?: string;
+  status?: string;
+  pendingReason?: string;
 }
 
 const STATUS_CFG: Record<AppStatus, { color: string; bg: string; border: string; dot: string; label: string }> = {
@@ -57,7 +61,7 @@ const DEMO_PRESETS = {
   HIBT: {
     assetName: "Harbour Infrastructure Bond Token (HIBT)",
     assetType: "Bond" as AssetType,
-    description: "Tokenised corporate bond backed by Asia logistics infrastructure assets. 5-year tenor, 5.50% semi-annual coupon, SFC-authorised under SFO s.103. ERC-3643 on Mantle Network with AI compliance gating oracle.",
+    description: "Tokenised corporate bond backed by Asia logistics infrastructure assets. 5-year tenor, 5.50% semi-annual coupon, SFC-authorised under SFO s.103. Casper-native issuance on Casper Network with AI compliance gating oracle.",
     unitPrice: "1000",
     totalSupply: "100000",
     prospectusText: `PROSPECTUS — HARBOUR INFRASTRUCTURE BOND TOKEN (HIBT)
@@ -70,7 +74,7 @@ under the Securities and Futures Ordinance (SFO) Cap. 571.
 Credit Rating: Moody's A2 / S&P A (Stable Outlook)
 
 BOND TERMS & STRUCTURE
-Token Standard:   ERC-3643 compliant token on Mantle Network
+Token Standard:   Casper-native issuance on Casper Network
 Token Symbol:     HIBT
 Face Value:       USD 1,000 per token
 Total Issuance:   USD 100,000,000 (100,000 tokens)
@@ -92,20 +96,20 @@ AML/KYC PROCEDURES
 All investors are subject to full CDD under AMLO Cap. 615.
 PEP screening via World-Check database.
 AI-assisted identity verification with liveness check.
-On-chain identity registry via ERC-3643 IdentityRegistry.sol.
+On-chain identity registry via Casper IdentityRegistry contract.
 
 SMART CONTRACT SECURITY
 Smart contracts audited by PeckShield Inc. (Report ref: PS-2026-HIBT-001)
 Zero critical or high-severity findings.
 
 TRANSFER RESTRICTIONS
-ERC-3643 compliance module enforces on-chain transfer restrictions.
+Casper compliance and identity contracts enforce on-chain transfer restrictions.
 Transfers blocked if recipient fails identity/jurisdiction check.`,
   },
   KCRT: {
     assetName: "Kowloon Commercial REIT Token (KCRT)",
     assetType: "REIT" as AssetType,
-    description: "Fractionalised Asia Grade-A office REIT backed by rental income from the Kowloon East commercial corridor. Quarterly distributions, independent valuation, and ERC-3643 transfer restrictions on Mantle Network.",
+    description: "Fractionalised Asia Grade-A office REIT backed by rental income from the Kowloon East commercial corridor. Quarterly distributions, independent valuation, and Casper identity-registry transfer restrictions.",
     unitPrice: "1000",
     totalSupply: "120000",
     prospectusText: `PROSPECTUS — KOWLOON COMMERCIAL REIT TOKEN (KCRT)
@@ -118,7 +122,7 @@ Trustee: BOCI-Prudential Trustee Limited
 External Valuer: Jones Lang LaSalle (JLL)
 
 REIT ASSET PROFILE
-Token Standard:   ERC-3643 compliant token on Mantle Network
+Token Standard:   Casper-native issuance on Casper Network
 Token Symbol:     KCRT
 Underlying Assets: Grade-A commercial office portfolio in Kowloon East
 Total Gross Asset Value: USD 154,000,000
@@ -144,14 +148,10 @@ market illiquidity, and manager conflict of interest. Quarterly property
 occupancy and rent-roll reports are disclosed to token holders.
 
 TRANSFER RESTRICTIONS
-ERC-3643 transfer controls prohibit non-whitelisted holders and enforce
+Casper transfer controls prohibit non-whitelisted holders and enforce
 jurisdiction-specific transfer restrictions on-chain.`,
   },
 } as const;
-
-const TOKEN_DECIMALS = 10n ** 18n;
-const DEFAULT_FACE_VALUE_USD = 1000n;
-const DEMO_USD_PER_MNT = 1000n;
 
 function StatusBadge({ status }: { status: AppStatus }) {
   const cfg = STATUS_CFG[status];
@@ -163,12 +163,22 @@ function StatusBadge({ status }: { status: AppStatus }) {
   );
 }
 
-export default function TokenizePage() {
-  const { address } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { openConnectModal } = useConnectModal();
-  const { data: wagmiWalletClient } = useWalletClient();
+function normalizeDeployResult(deploy: DeployResult): DeployResult {
+  const legacyEvm = /mantle/i.test(deploy.network ?? "") || /mantlescan/i.test(deploy.explorerUrl ?? "");
+  if (!legacyEvm) return deploy;
 
+  return {
+    ...deploy,
+    registrationId: deploy.registrationId ?? deploy.txHash,
+    contractHash: deploy.contractHash,
+    network: "Casper Testnet",
+    standard: "Casper Native RWA Issuance",
+    status: deploy.status ?? "Registered",
+    explorerUrl: undefined,
+  };
+}
+
+export default function TokenizePage() {
   // ── view toggle ──────────────────────────────────────────────────────────
   const [view, setView] = useState<"submit" | "deploy">("deploy");
 
@@ -221,145 +231,15 @@ export default function TokenizePage() {
   }
 
   // ── deployment state ──────────────────────────────────────────────────────
-  const [records,     setRecords]     = useState<SFCRecord[]>([]);
-  const [selected,    setSelected]    = useState<SFCRecord | null>(null);
-  const [filter,      setFilter]      = useState<FilterType>("All");
-  const [loading,     setLoading]     = useState(true);
-  const [deploying,   setDeploying]   = useState(false);
-  const [deployMap,   setDeployMap]   = useState<Record<string, DeployResult>>({});
-  const [deployError, setDeployError] = useState<string | null>(null);
-
-  // ── coupon distribution state ─────────────────────────────────────────────
-  const [investorInput, setInvestorInput] = useState("");
-  const [fundBusy,   setFundBusy]   = useState(false);
-  const [fundResult, setFundResult] = useState<{ txHash: string; payout: string } | null>(null);
-  const [fundError,  setFundError]  = useState<string | null>(null);
-
-  function getCouponPaymentsPerYear(assetName: string) {
-    return /reit|kcrt/i.test(assetName) ? 4n : 2n;
-  }
-
-  function getFaceValueUsd(assetName: string) {
-    return /hibt|kcrt/i.test(assetName) ? DEFAULT_FACE_VALUE_USD : DEFAULT_FACE_VALUE_USD;
-  }
-
-  function getAssetTypeCode(assetName: string, assetType?: string) {
-    if (assetType === "REIT" || /reit|kcrt/i.test(assetName)) return 0;
-    if (assetType === "GreenBond" || /green/i.test(assetName)) return 1;
-    if (assetType === "TradeReceivable" || /trade|receivable/i.test(assetName)) return 2;
-    return 3;
-  }
-
-  function getDefaultCouponBps(assetName: string) {
-    if (/kcrt/i.test(assetName)) return 780n;
-    if (/hibt/i.test(assetName)) return 550n;
-    return 550n;
-  }
-
-  function getDefaultMaturityDate(assetName: string) {
-    if (/kcrt/i.test(assetName)) {
-      return BigInt(Math.floor(new Date("2031-12-31T00:00:00Z").getTime() / 1000));
-    }
-
-    return BigInt(Math.floor(new Date("2031-07-15T00:00:00Z").getTime() / 1000));
-  }
-
-  function getDisplayCouponPerToken(assetName: string) {
-    if (/hibt/i.test(assetName)) return "0.0275 MNT";
-    if (/kcrt/i.test(assetName)) return "0.0195 MNT";
-    return "Coupon-rate based";
-  }
-
-  async function handleFundCoupon() {
-    if (!address) {
-      openConnectModal?.();
-      return;
-    }
-
-    const investorAddr = investorInput.trim() || (address ?? "");
-    if (!investorAddr || !/^0x[0-9a-fA-F]{40}$/.test(investorAddr)) {
-      setFundError("Enter a valid investor wallet address");
-      return;
-    }
-
-    if (!selected?.asset?.trim()) {
-      setFundError("Select an approved asset before paying coupon");
-      return;
-    }
-
-    setFundBusy(true);
-    setFundError(null);
-    setFundResult(null);
-    try {
-      const rwaTokenAddress = process.env.NEXT_PUBLIC_HARBOUR_RWA_TOKEN_ADDRESS as `0x${string}` | undefined;
-      if (!rwaTokenAddress || !/^0x[0-9a-fA-F]{40}$/.test(rwaTokenAddress) || rwaTokenAddress === "0x0000000000000000000000000000000000000000") {
-        throw new Error("NEXT_PUBLIC_HARBOUR_RWA_TOKEN_ADDRESS not configured");
-      }
-
-      const isMainnet = process.env.NEXT_PUBLIC_CHAIN_ID === "5000";
-      const targetChainId = isMainnet ? 5000 : 5003;
-      const targetChainDef = isMainnet ? mantle : mantleSepoliaTestnet;
-      const rpcUrl = isMainnet
-        ? (process.env.NEXT_PUBLIC_MANTLE_RPC ?? "https://rpc.mantle.xyz")
-        : (process.env.NEXT_PUBLIC_MANTLE_TESTNET_RPC ?? "https://rpc.sepolia.mantle.xyz");
-
-      await switchChainAsync({ chainId: targetChainId });
-
-      if (!wagmiWalletClient) {
-        throw new Error("No wallet connected — please connect your wallet first");
-      }
-
-      const publicClient = createPublicClient({
-        chain: targetChainDef,
-        transport: http(rpcUrl),
-      });
-
-      const couponBps = getDefaultCouponBps(selected.asset);
-
-      const investorBalance = await publicClient.readContract({
-        address: rwaTokenAddress,
-        abi: artifact.abi,
-        functionName: "balanceOf",
-        args: [investorAddr as `0x${string}`],
-      }) as bigint;
-
-      if (investorBalance === 0n) {
-        throw new Error("Investor holds no HIBT tokens");
-      }
-
-      const issuerNativeBalance = await publicClient.getBalance({
-        address: address as `0x${string}`,
-      });
-
-      const faceValueUsd = getFaceValueUsd(selected.asset);
-      const couponPaymentsPerYear = getCouponPaymentsPerYear(selected.asset);
-      const amountPerToken = (faceValueUsd * TOKEN_DECIMALS * couponBps) / 10000n / couponPaymentsPerYear / DEMO_USD_PER_MNT;
-      const payout = (amountPerToken * investorBalance) / TOKEN_DECIMALS;
-
-      if (payout === 0n) {
-        throw new Error("Calculated payout is zero");
-      }
-
-      if (issuerNativeBalance <= payout) {
-        throw new Error("Issuer wallet does not hold enough native MNT to pay this coupon and gas");
-      }
-
-      const txHash = await wagmiWalletClient.sendTransaction({
-        to: investorAddr as `0x${string}`,
-        value: payout,
-        account: address,
-        chain: targetChainDef,
-      });
-
-      await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 60_000 });
-
-      setFundResult({ txHash, payout: (Number(payout) / 1e18).toFixed(4) });
-    } catch (e) {
-      setFundError(e instanceof Error ? e.message : "Fund failed");
-    } finally {
-      setFundBusy(false);
-    }
-  }
+  const [records,          setRecords]          = useState<SFCRecord[]>([]);
+  const [selected,         setSelected]         = useState<SFCRecord | null>(null);
+  const [filter,           setFilter]           = useState<FilterType>("All");
+  const [loading,          setLoading]          = useState(true);
+  const [deploying,        setDeploying]        = useState(false);
+  const [deployMap,        setDeployMap]        = useState<Record<string, DeployResult>>({});
+  const [deployError,      setDeployError]      = useState<string | null>(null);
+  const [walletPublicKey,  setWalletPublicKey]  = useState<string | null>(null);
+  const [deployStep,       setDeployStep]       = useState<"idle" | "connecting" | "signing" | "broadcasting">("idle");
 
   async function loadRecords() {
     setLoading(true);
@@ -369,7 +249,10 @@ export default function TokenizePage() {
         fetch("/api/tokenize/deployments"),
       ]);
       const sfcData = await sfcRes.json();
-      const deplData = await deplRes.json() as Record<string, DeployResult>;
+      const rawDeployments = await deplRes.json() as Record<string, DeployResult>;
+      const deplData = Object.fromEntries(
+        Object.entries(rawDeployments).map(([id, deployment]) => [id, normalizeDeployResult(deployment)])
+      ) as Record<string, DeployResult>;
       const recs: SFCRecord[] = sfcData.submissions ?? [];
       setRecords(recs);
       setDeployMap(deplData);
@@ -396,62 +279,94 @@ export default function TokenizePage() {
     };
   }, []);
 
-  useEffect(() => {
-    setFundBusy(false);
-    setFundError(null);
-    setFundResult(null);
-  }, [selected?.id]);
-
   async function handleDeploy() {
     if (!selected || deploying) return;
     setDeployError(null);
-
-    if (!address) {
-      openConnectModal?.();
-      return;
-    }
-
-    const isMainnet = process.env.NEXT_PUBLIC_CHAIN_ID === "5000";
-    const targetChainId = isMainnet ? 5000 : 5003;
-    const targetChainDef = isMainnet ? mantle : mantleSepoliaTestnet;
-
     setDeploying(true);
+
     try {
-      await switchChainAsync({ chainId: targetChainId });
-
-      if (!wagmiWalletClient) throw new Error("No wallet connected — please connect your wallet first");
-      const walletClient = wagmiWalletClient;
-      const publicClient = createPublicClient({
-        chain: targetChainDef,
-        transport: http(isMainnet ? "https://rpc.mantle.xyz" : "https://rpc.sepolia.mantle.xyz"),
-      });
-
-      const rawName = selected.asset;
-      const symbol = rawName.replace(/\s+/g, "").toUpperCase().slice(0, 6) || "HRWAT";
-      const complianceModule = process.env.NEXT_PUBLIC_COMPLIANCE_MODULE_ADDRESS as `0x${string}`;
-      const couponToken = process.env.NEXT_PUBLIC_USDY_ADDRESS as `0x${string}` | undefined;
-
-      if (!couponToken) {
-        throw new Error("NEXT_PUBLIC_USDY_ADDRESS not configured");
+      // Step 1 — connect Casper Wallet and get public key
+      setDeployStep("connecting");
+      const walletProvider = getCasperWalletProvider();
+      let pubKey = walletPublicKey;
+      if (!pubKey) {
+        await walletProvider.requestConnection();
+        pubKey = await walletProvider.getActivePublicKey();
+        if (!pubKey) throw new Error("Casper Wallet did not return a public key");
+        setWalletPublicKey(pubKey);
       }
 
-      const txHash = await walletClient.deployContract({
-        abi: artifact.abi,
-        bytecode: artifact.bytecode as `0x${string}`,
-        args: [rawName, symbol, address, complianceModule, couponToken],
+      // Step 2 — ask server to build unsigned Casper transaction with wallet's public key
+      setDeployStep("signing");
+      const prepareBody = {
+        signerPublicKey: pubKey,
+        id: selected.id,
+        assetName: selected.asset,
+        assetType: selected.type,
+        issuer: selected.issuer,
+        sfcRef: selected.sfcRef,
+        totalIssuance: selected.totalIssuance,
+        currency: selected.currency,
+      };
+      console.log("📤 Sending to /api/tokenize/prepare-deploy:", prepareBody);
+      const prepRes = await fetch("/api/tokenize/prepare-deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prepareBody),
       });
+      const prepData = await prepRes.json() as { success?: boolean; error?: string; deployJson?: Record<string, unknown>; deployToken?: string; deployHash?: string; paymentCSPR?: string };
+      console.log("📥 Response from prepare-deploy:", prepData);
+      if (!prepRes.ok || prepData.error) throw new Error(prepData.error ?? "Failed to prepare deploy");
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 60_000 });
+      // Step 3 — ask Casper Wallet to sign the transaction
+      console.log("📝 Sending to Casper Wallet for signing:", prepData.deployJson);
+      const sigResult = await walletProvider.sign(JSON.stringify(prepData.deployJson), pubKey);
+      if (sigResult.cancelled) throw new Error("Signing cancelled by user");
+      const signatureHex = sigResult.signatureHex;
+      if (!signatureHex) throw new Error("Casper Wallet did not return a signature");
+      console.log("✅ Signature received from wallet:", signatureHex);
+
+      // Step 4 — send signed deploy to server for broadcast (use token to avoid large payload)
+      setDeployStep("broadcasting");
+      const broadcastBody = {
+        deployToken: prepData.deployToken,
+        signatureHex,
+        signerPublicKey: pubKey,
+        id: selected.id,
+        assetName: selected.asset,
+        assetType: selected.type,
+        issuer: selected.issuer,
+        sfcRef: selected.sfcRef,
+        totalIssuance: selected.totalIssuance,
+        currency: selected.currency,
+      };
+      console.log("📤 Sending to /api/tokenize/broadcast-deploy:", broadcastBody);
+      const broadRes = await fetch("/api/tokenize/broadcast-deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(broadcastBody),
+      });
+      const data = await broadRes.json() as DeployResult & { success?: boolean; error?: string };
+      console.log("📥 Response from broadcast-deploy:", data);
+      if (!broadRes.ok || data.error) throw new Error(data.error ?? "Casper broadcast failed");
 
       const newEntry: DeployResult = {
-        txHash,
-        contractAddress: receipt.contractAddress ?? "",
-        blockNumber: Number(receipt.blockNumber),
-        network: isMainnet ? "Mantle" : "Mantle Sepolia",
-        deployedAt: new Date().toISOString().slice(0, 10),
-        standard: "ERC-3643",
-        gasUsed: Number(receipt.gasUsed),
-        explorerUrl: `${isMainnet ? "https://mantlescan.xyz" : "https://sepolia.mantlescan.xyz"}/tx/${txHash}`,
+        txHash: data.txHash,
+        deployHash: data.deployHash,
+        registrationId: data.registrationId,
+        assetId: data.assetId,
+        assetName: data.assetName ?? selected.asset,
+        symbol: data.symbol,
+        contractHash: data.contractHash,
+        contractAddress: data.contractAddress,
+        blockNumber: data.blockNumber,
+        network: data.network,
+        deployedAt: data.deployedAt,
+        standard: data.standard,
+        gasUsed: data.gasUsed,
+        explorerUrl: data.explorerUrl,
+        status: data.status,
+        pendingReason: data.pendingReason,
       };
       await fetch("/api/tokenize/deployments", {
         method: "POST",
@@ -460,9 +375,16 @@ export default function TokenizePage() {
       });
       setDeployMap((prev) => ({ ...prev, [selected.id]: newEntry }));
     } catch (err) {
-      setDeployError(err instanceof Error ? err.message : "Deployment failed, please retry");
+      console.error("❌ handleDeploy error:", err);
+      console.error("❌ Error details:", {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        type: typeof err,
+      });
+      setDeployError(err instanceof Error ? err.message : "Casper registration failed, please retry");
     } finally {
       setDeploying(false);
+      setDeployStep("idle");
     }
   }
 
@@ -719,7 +641,7 @@ export default function TokenizePage() {
                   ["1", "#1d4ed8", "Submit for Review",      "You are here — fill in asset details and submit to intermediary Sponsor Inbox."],
                   ["2", "#6366f1", "AI Compliance Check",    "Type 6 LC runs SFC compliance review at /compliance and files with the regulator."],
                   ["3", "#7c3aed", "SFC Approval",           "SFC reviews the application at /regulator/issuance and grants authorisation."],
-                  ["4", "#059669", "Deploy on Mantle",       "Return to Step 2 tab — deploy the ERC-3643 token once SFC-approved."],
+                  ["4", "#059669", "Register on Casper",       "Return to Step 2 tab — register the Casper issuance once SFC-approved."],
                 ] as [string, string, string, string][]).map(([num, color, title, desc]) => (
                   <li key={num} className="flex gap-3">
                     <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 text-white"
@@ -774,7 +696,7 @@ export default function TokenizePage() {
               { n: "1", label: "Issuance Application", sub: "Fill in asset details & submit",          color: "#1d4ed8", bg: "rgba(29,78,216,0.10)" },
               { n: "2", label: "AI Compliance Review",  sub: "Intermediary runs AI compliance score",  color: "#7c3aed", bg: "rgba(124,58,237,0.09)" },
               { n: "3", label: "SFC Approval",          sub: "SFC reviews and authorises issuance",    color: "#f59e0b", bg: "rgba(245,158,11,0.10)" },
-              { n: "4", label: "On-Chain Deployment",   sub: "Deploy token on Mantle Network",         color: "#10b981", bg: "rgba(16,185,129,0.10)" },
+              { n: "4", label: "On-Chain Deployment",   sub: "Register issuance on Casper Network",         color: "#10b981", bg: "rgba(16,185,129,0.10)" },
             ]).map((s, i, arr) => (
               <div key={s.n} className="flex items-center">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: s.bg }}>
@@ -955,12 +877,9 @@ export default function TokenizePage() {
               {/* SFC on-chain approval tx */}
               {selected.approvedTx && (
                 <div className="rounded-xl px-4 py-3" style={{ background: "rgba(167,139,250,0.04)", border: "1px solid rgba(167,139,250,0.2)" }}>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600 mb-1">SFC On-Chain Approval Record</div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600 mb-1">SFC Approval Reference</div>
                   <div className="font-mono text-[11px] text-violet-700 break-all">{selected.approvedTx}</div>
-                  <a href={`https://sepolia.mantlescan.xyz/tx/${selected.approvedTx}`} target="_blank" rel="noopener noreferrer"
-                    className="text-[10px] text-violet-500 hover:underline mt-0.5 inline-block">
-                    View on Mantle Explorer →
-                  </a>
+                  <div className="text-[10px] text-violet-500 mt-0.5">Casper issuance registration is created in the next step.</div>
                 </div>
               )}
 
@@ -975,26 +894,31 @@ export default function TokenizePage() {
               {/* Deploy section */}
               {selected.status === "Approved" && !deploy && (
                 <div className="rounded-xl p-5" style={{ background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.2)" }}>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Deploy ERC-3643 Token · Mantle Network</div>
-                  <p className="text-xs text-slate-600 mb-4">SFC authorisation confirmed. Deploy <strong>HarbourRWAToken.sol</strong> on Mantle Sepolia, pre-configured with the SFC reference, compliance oracle, and on-chain transfer restrictions.</p>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Register Casper Issuance · Casper Network</div>
+                  <p className="text-xs text-slate-600 mb-4">SFC authorisation confirmed. Register this issuance on Casper Testnet, binding the SFC reference to the Casper compliance and identity workflow. This avoids the old Solidity deployment path.</p>
 
-                  {/* Wallet status row */}
-                  {address ? (
-                    <div className="flex items-center gap-2 mb-3 text-[10px]" style={{ color: "#10b981" }}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      <span className="font-mono">{address.slice(0, 6)}…{address.slice(-4)}</span>
-                      <span className="text-slate-400">Connected · will deploy as</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 mb-3 text-[10px] text-slate-400">
-                      <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
-                      <span>Wallet not connected — click to connect first</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mb-3 text-[10px]" style={{ color: "#10b981" }}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span className="font-semibold">Casper Testnet</span>
+                    <span className="text-slate-400">wallet-signed on-chain issuance · Casper Wallet required</span>
+                    {walletPublicKey && (
+                      <span className="ml-auto font-mono text-indigo-500 truncate max-w-[120px]" title={walletPublicKey}>🔑 {walletPublicKey.slice(0, 12)}…</span>
+                    )}
+                  </div>
 
                   {deployError && (
                     <div className="text-[11px] text-red-600 rounded-lg px-3 py-2 mb-3" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
                       {deployError}
+                    </div>
+                  )}
+
+                  {/* Step indicator when deploying */}
+                  {deploying && (
+                    <div className="flex items-center gap-2 text-[11px] text-indigo-600 rounded-lg px-3 py-2 mb-3" style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                      <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                      {deployStep === "connecting" && "Connecting Casper Wallet…"}
+                      {deployStep === "signing"    && "Waiting for wallet signature…"}
+                      {deployStep === "broadcasting" && "Broadcasting to Casper Testnet…"}
                     </div>
                   )}
 
@@ -1004,9 +928,12 @@ export default function TokenizePage() {
                     {deploying ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Awaiting wallet signature...
+                        {deployStep === "connecting"   && "Connecting Wallet…"}
+                        {deployStep === "signing"      && "Sign in Wallet…"}
+                        {deployStep === "broadcasting" && "Broadcasting…"}
+                        {deployStep === "idle"         && "Registering…"}
                       </>
-                    ) : !address ? "🔗  Connect Wallet & Deploy →" : "🚀  Deploy Now →"}
+                    ) : walletPublicKey ? "🚀  Register on Casper →" : "🔗  Connect Wallet & Register →"}
                   </button>
                 </div>
               )}
@@ -1015,20 +942,29 @@ export default function TokenizePage() {
               {deploy && (
                 <div className="rounded-xl p-5 space-y-4" style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.3)" }}>
                   <div className="flex items-center gap-3">
-                    <span className="text-xl">✅</span>
+                    <span className="text-xl">{deploy.status === "Deployed" ? "✅" : "🕐"}</span>
                     <div>
-                      <div className="text-sm font-bold text-indigo-700">Token Deployed Successfully</div>
+                      <div className="text-sm font-bold text-indigo-700">
+                        Casper WASM Deploy {deploy.status === "Deployed" ? "On-Chain" : "Pending Broadcast"}
+                      </div>
                       <div className="text-[10px] text-slate-500">{deploy.network} · {deploy.standard} · {deploy.deployedAt}</div>
                     </div>
                   </div>
+                  {deploy.status !== "Deployed" && (
+                    <div className="rounded-lg px-3 py-2.5 text-[11px]" style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                      <span className="font-semibold text-amber-700">Signed deploy saved locally.</span>
+                      <span className="text-slate-600"> The Casper testnet RPC is currently unreachable from this network. The fully signed WASM deploy has been persisted to <code className="text-indigo-600">data/pending-deploys/</code> and will be broadcast automatically when connectivity is restored, or can be sent manually via <code className="text-indigo-600">casper-client put-deploy</code>.</span>
+                    </div>
+                  )}
                   <div className="space-y-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(99,102,241,0.15)" }}>
                     {([
-                      ["Transaction Hash",  deploy.txHash],
-                      ["Contract Address",  deploy.contractAddress],
-                      ["Block Number",      String(deploy.blockNumber)],
-                      ["Gas Used",          deploy.gasUsed.toLocaleString()],
-                      ["Standard",          deploy.standard],
-                      ["Network",           deploy.network],
+                      ["Deploy Hash", deploy.deployHash ?? deploy.txHash ?? deploy.registrationId ?? "—"],
+                      ["Casper Asset ID", deploy.assetId ?? "—"],
+                      ...(deploy.contractHash ? [["Casper Contract Hash", deploy.contractHash]] : []),
+                      ["Status", deploy.status === "Deployed" ? "On-Chain" : "Pending Broadcast"],
+                      ["Standard", deploy.standard],
+                      ["Network", deploy.network],
+                      ["Submitted At", deploy.deployedAt],
                     ] as [string, string][]).map(([k, v]) => (
                       <div key={k} className="flex justify-between gap-4 text-[11px]">
                         <span className="text-slate-500 shrink-0">{k}</span>
@@ -1036,84 +972,19 @@ export default function TokenizePage() {
                       </div>
                     ))}
                   </div>
-                  <a href={deploy.explorerUrl} target="_blank" rel="noopener noreferrer"
-                    className="block text-center text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 py-2 rounded-lg transition-colors"
-                    style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
-                    View on Mantle Explorer →
-                  </a>
+                  {deploy.explorerUrl && (
+                    <a href={deploy.explorerUrl} target="_blank" rel="noopener noreferrer"
+                      className="block text-center text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 py-2 rounded-lg transition-colors"
+                      style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                      {deploy.status === "Deployed" ? "View on Casper Explorer →" : "View on Casper Explorer (pending) →"}
+                    </a>
+                  )}
 
-                  {/* ── Coupon Payment ───────────────────────────────────────── */}
-                  <div className="rounded-xl p-5 space-y-4 mt-2" style={{ background: "rgba(16,185,129,0.04)", border: "1px solid rgba(16,185,129,0.2)" }}>
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Pay Coupon · HIBT</div>
-                    {/* Schedule table */}
-                    <table className="w-full text-[11px]">
-                      <thead>
-                        <tr style={{ borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
-                          <th className="text-left pb-1 text-slate-400 font-medium">Payment Date</th>
-                          <th className="text-right pb-1 text-slate-400 font-medium">Per Token</th>
-                          <th className="text-right pb-1 text-slate-400 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr style={{ borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-                          <td className="py-1.5 text-slate-700">15 Jan 2026</td>
-                          <td className="py-1.5 text-right font-mono text-slate-700">{getDisplayCouponPerToken(selected.asset)} </td>
-                          <td className="py-1.5 text-right">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(16,185,129,0.12)", color: "#059669" }}>Paid</span>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5 text-slate-700">15 Jul 2026</td>
-                          <td className="py-1.5 text-right font-mono text-slate-700">{getDisplayCouponPerToken(selected.asset)} </td>
-                          <td className="py-1.5 text-right">
-                            {fundResult
-                              ? <span className="px-2 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(16,185,129,0.12)", color: "#059669" }}>Paid</span>
-                              : <span className="px-2 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(245,158,11,0.12)", color: "#d97706" }}>Pending</span>
-                            }
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    {!fundResult && (
-                      <div className="space-y-2">
-                        <label className="text-[10px] text-slate-500 font-medium">Investor Wallet Address</label>
-                        <input
-                          type="text"
-                          value={investorInput}
-                          onChange={(e) => setInvestorInput(e.target.value)}
-                          placeholder={address ? `${address} (connected wallet)` : "0x..."}
-                          className="w-full text-[11px] font-mono rounded-lg px-3 py-2 outline-none"
-                          style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.15)", color: "#334155" }}
-                        />
-                        {fundError && (
-                          <div className="text-[11px] text-red-600 rounded px-3 py-2" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                            {fundError}
-                          </div>
-                        )}
-                        <button
-                          onClick={handleFundCoupon}
-                          disabled={fundBusy}
-                          className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-                          style={{ background: "linear-gradient(135deg, #10b981 0%, #059669 100%)" }}
-                        >
-                          {fundBusy ? (
-                            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Distributing...</>
-                          ) : "💸  Pay Jul 2026 Coupon →"}
-                        </button>
-                      </div>
-                    )}
-
-                    {fundResult && (
-                      <div className="rounded-lg px-4 py-3 space-y-1" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)" }}>
-                        <div className="text-[11px] font-bold text-emerald-700">✅ Coupon Paid</div>
-                        <div className="text-[11px] text-slate-600">{fundResult.payout} MNT sent from issuer wallet to investor wallet</div>
-                        <a href={`https://sepolia.mantlescan.xyz/tx/${fundResult.txHash}`} target="_blank" rel="noopener noreferrer"
-                          className="text-[10px] font-mono text-emerald-700 hover:underline break-all">
-                          Tx: {fundResult.txHash.slice(0, 20)}...
-                        </a>
-                      </div>
-                    )}
+                  <div className="rounded-xl p-5 space-y-2 mt-2" style={{ background: "rgba(16,185,129,0.04)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Coupon Servicing · Casper</div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Issuance metadata is now deployed through the Casper TokenCoupon WASM flow. Coupon distribution records can be added through the deployed Casper contract as the servicing module expands.
+                    </p>
                   </div>
 
                 </div>
@@ -1122,7 +993,7 @@ export default function TokenizePage() {
               {selected.status === "Pending SFC Review" && !deploy && (
                 <div className="rounded-xl p-4" style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.2)" }}>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1.5">Awaiting SFC Review</div>
-                  <p className="text-xs text-slate-600">This application has been submitted and is pending review by the SFC regulator. Deployment will be available once authorisation is granted.</p>
+                  <p className="text-xs text-slate-600">This application has been submitted and is pending review by the SFC regulator. Casper registration will be available once authorisation is granted.</p>
                 </div>
               )}
               {selected.status === "Changes Required" && !deploy && (
