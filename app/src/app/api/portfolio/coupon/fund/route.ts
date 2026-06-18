@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       investorWallet,
       payout: payout.toString(),
       txHash,
-      explorerUrl: `https://sepolia.mantlescan.xyz/tx/${txHash}`,
+      explorerUrl: `https://testnet.cspr.live/deploy/${txHash}`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fund coupon";

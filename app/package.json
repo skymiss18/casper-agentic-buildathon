@@ -6,11 +6,14 @@
     "dev": "cross-env TURBOPACK_WORKERS=2 next dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=1536 next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "casper:keygen": "node keygen.mjs",
+    "casper:deploy": "node deploy-casper.mjs"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.11",
     "@tanstack/react-query": "^5.100.14",
+    "casper-js-sdk": "^5.0.12",
     "next": "16.2.6",
     "openai": "^6.37.0",
     "pdfjs-dist": "^5.7.284",
@@ -24,6 +27,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "binaryen": "^130.0.0",
     "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",

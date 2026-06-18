@@ -12,9 +12,9 @@ import { useState } from "react";
 
 const EXPLORER = process.env.NEXT_PUBLIC_CHAIN_ID === "5000"
 
-  ? "https://mantlescan.xyz/tx/"
+  ? "https://cspr.live/deploy/"
 
-  : "https://sepolia.mantlescan.xyz/tx/";
+  : "https://testnet.cspr.live/deploy/";
 
 
 
@@ -104,11 +104,11 @@ const RECORDS = [
 
     id: "OC-2026-005",
 
-    asset: "Mantle Sovereign Bond Token",
+    asset: "Casper Sovereign Bond Token",
 
     type: "Bond",
 
-    issuer: "Mantle Financial Group",
+    issuer: "Casper Financial Group",
 
     score: 65,
 
@@ -136,7 +136,7 @@ const STAT_CARDS = [
 
     value: "5",
 
-    sub: "ERC-3643 · Mantle Network",
+    sub: "ERC-3643 · Casper Network",
 
     icon: "💰",
 
@@ -338,7 +338,7 @@ export default function RegulatorPage() {
 
                 <p className="text-sm text-slate-400">
 
-                  On-chain compliance records · HarbourRWA Protocol · Mantle Network
+                  On-chain compliance records · HarbourRWA Protocol · Casper Network
 
                 </p>
 

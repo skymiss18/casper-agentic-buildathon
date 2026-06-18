@@ -541,7 +541,7 @@ export default function AdminKYCPage() {
                     style={{ background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.25)" }}>
                     <div className="text-xs font-semibold text-emerald-700 mb-1">✓ Application Approved</div>
                     <p className="text-xs text-emerald-600 leading-relaxed">
-                      Wallet whitelisted in <code>IdentityRegistry.sol</code> on Mantle Network. Investor may now proceed to subscription.
+                      Wallet whitelisted in <code>IdentityRegistry.sol</code> on Casper Network. Investor may now proceed to subscription.
                     </p>
                   </div>
                 )}

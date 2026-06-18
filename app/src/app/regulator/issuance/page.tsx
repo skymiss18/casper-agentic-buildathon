@@ -23,8 +23,8 @@ interface Application {
 }
 // ── Demo data ────────────────────────────────────────────────────────────
 const EXPLORER = process.env.NEXT_PUBLIC_CHAIN_ID === "5000"
-  ? "https://mantlescan.xyz/tx/"
-  : "https://sepolia.mantlescan.xyz/tx/";
+  ? "https://cspr.live/deploy/"
+  : "https://testnet.cspr.live/deploy/";
 const INITIAL_APPS: Application[] = [];
 const TYPE_META: Record<string, { color: string; bg: string; border: string; label: string; regRef: string }> = {
   Bond:            { color: "#1a56db", bg: "rgba(96,165,250,0.1)",   border: "rgba(96,165,250,0.3)",   label: "Fixed Income / Bond",       regRef: "SFO s.103 · SFC Circular on Tokenisation (Nov 2023)" },
@@ -173,7 +173,7 @@ export default function IssuanceReviewPage() {
                   Tokenised Securities Issuance Review Portal
                 </h1>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  SFO s.103 Authorisation · ERC-3643 Compliance Gate · Mantle Network
+                  SFO s.103 Authorisation · ERC-3643 Compliance Gate · Casper Network
                 </p>
               </div>
             </div>
@@ -194,7 +194,7 @@ export default function IssuanceReviewPage() {
             <strong className="text-slate-700">Regulatory Basis:</strong>{" "}
             Applications submitted under the SFC Circular on Tokenisation of SFC-authorised Investment Products (November 2023).
             AI compliance pre-screening conducted by the sponsoring Type 6 Licensed Corporation.
-            Scores are anchored on-chain via <code className="font-mono text-blue-600">ComplianceOracle.sol</code> on Mantle Network and are tamper-proof.
+            Scores are anchored on-chain via <code className="font-mono text-blue-600">ComplianceOracle.sol</code> on Casper Network and are tamper-proof.
             The SFC retains final authorisation authority under SFO s.103.
           </div>
         </div>
@@ -352,7 +352,7 @@ export default function IssuanceReviewPage() {
                           { label: "Sponsoring Intermediary", value: `${selectedApp.sponsorLicence ?? "Type 6 LC"} — Harbour Capital Markets` },
                           { label: "Asset Type",            value: tm.label },
                           { label: "Token Standard",        value: "ERC-3643 (Transfer-Restricted)" },
-                          { label: "Blockchain Network",    value: "Mantle Network (Chain ID 5003)" },
+                          { label: "Blockchain Network",    value: "Casper Network (Chain ID 5003)" },
                           { label: "Regulatory Framework",  value: tm.regRef },
                         ].map(({ label, value }) => (
                           <div key={label} className="rounded-lg px-3 py-2.5"
@@ -460,7 +460,7 @@ export default function IssuanceReviewPage() {
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-5 h-5 rounded flex items-center justify-center text-[11px]"
                           style={{ background: "rgba(30,58,138,0.08)", border: "1px solid rgba(30,58,138,0.2)" }}>4</div>
-                        <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">On-Chain Evidence (Mantle Network)</h3>
+                        <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-500">On-Chain Evidence (Casper Network)</h3>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="rounded-lg px-4 py-3" style={{ background: "#f8f7f4", border: "1px solid rgba(0,0,0,0.08)" }}>
@@ -497,7 +497,7 @@ export default function IssuanceReviewPage() {
                             <div>
                               <div className="text-[11px] font-semibold text-amber-700">Awaiting SFC Authorisation</div>
                               <div className="text-[10px] text-slate-500 mt-0.5">
-                                Approval will generate an on-chain authorisation record on Mantle Network.
+                                Approval will generate an on-chain authorisation record on Casper Network.
                               </div>
                             </div>
                           </div>
@@ -544,7 +544,7 @@ export default function IssuanceReviewPage() {
                       <div className="flex-1 min-w-0">
                         <div className="text-[11px] font-semibold text-slate-700">Regulatory Action</div>
                         <div className="text-[10px] text-slate-500 mt-0.5">
-                          Review all sections above. Approving will write an authorisation record to Mantle Network and unlock token deployment.
+                          Review all sections above. Approving will write an authorisation record to Casper Network and unlock token deployment.
                         </div>
                       </div>
                       <button
@@ -574,7 +574,7 @@ export default function IssuanceReviewPage() {
                       <div>
                         <div className="text-[12px] font-bold text-emerald-700">Issuance Authorised</div>
                         <div className="text-[11px] text-slate-500">
-                          Authorisation written to Mantle Network · {selectedApp.approvedBy ?? "SFC Officer"} · {selectedApp.approvedAt}. Issuer may now deploy the token contract.
+                          Authorisation written to Casper Network · {selectedApp.approvedBy ?? "SFC Officer"} · {selectedApp.approvedAt}. Issuer may now deploy the token contract.
                         </div>
                       </div>
                     </div>

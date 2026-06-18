@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@/lib/wallet-context";
-import { useWalletClient } from "wagmi";
+import { connectCasperWallet, signCasperDeploy } from "@/lib/casper-wallet";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,8 @@ const CUSTODY_FEE      = 0.0005;   // 0.05%
 const MIN_TOKENS       = 20;
 const DEADLINE         = "30 June 2026, 17:00 HKT";
 const SETTLEMENT       = "15 July 2026";
+const MIN_CSPR_TRANSFER = 2.5; // Casper native transfers below this are rejected on testnet.
+const DEFAULT_ASSET_NAME = "Harbour Infrastructure Bond Token (HIBT)";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -42,11 +44,19 @@ function buildRefPrefix(assetName: string) {
   return (cleaned.slice(0, 4) || "RWA") + "-";
 }
 
+function makeRefNum(assetName: string) {
+  const suffix = Date.now().toString(36).toUpperCase().slice(-8);
+  return buildRefPrefix(assetName) + suffix;
+}
+
+function bytesToHex(bytes: Uint8Array | number[]) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function SubscribePage() {
   const { wallet: connectedWallet } = useWallet();
-  const { data: walletClient } = useWalletClient();
   const [step, setStep] = useState<Step>(1);
 
   // Step 1
@@ -55,11 +65,11 @@ export default function SubscribePage() {
   const [notUSPerson,     setNotUSPerson]     = useState(false);
 
   // Step 2
-  const [assetName,       setAssetName]       = useState("Harbour Infrastructure Bond Token (HIBT)");
-  const [approvedAssets,  setApprovedAssets]  = useState<AssetOption[]>([{ name: "Harbour Infrastructure Bond Token (HIBT)", unitPrice: 1000 }]);
+  const [assetName,       setAssetName]       = useState(DEFAULT_ASSET_NAME);
+  const [approvedAssets,  setApprovedAssets]  = useState<AssetOption[]>([{ name: DEFAULT_ASSET_NAME, unitPrice: 1000 }]);
   const [assetsLoading,   setAssetsLoading]   = useState(true);
   const [assetsError,     setAssetsError]     = useState<string | null>(null);
-  const [tokens,          setTokens]          = useState("200");
+  const [tokens,          setTokens]          = useState("20");
 
   // Step 3
   const [declProspectus,  setDeclProspectus]  = useState(false);
@@ -67,38 +77,26 @@ export default function SubscribePage() {
   const [declRisk,        setDeclRisk]        = useState(false);
   const [declPiStatus,    setDeclPiStatus]    = useState(false);
 
-  // Step 1 ...wallet
-  const [walletAddress, setWalletAddress] = useState("");
-  useEffect(() => {
-    if (connectedWallet) {
-      setWalletAddress(connectedWallet);
-      return;
-    }
-    // Fallback: read already-connected accounts without triggering a popup
-    const eth = (window as unknown as { ethereum?: { request: (a: { method: string }) => Promise<string[]> } }).ethereum;
-    if (eth) {
-      eth.request({ method: "eth_accounts" }).then((accounts) => {
-        if (accounts[0]) setWalletAddress(accounts[0]);
-      }).catch(() => {});
-    }
-  }, [connectedWallet]);
+  // Step 1 / Casper wallet
+  const walletAddress = "";
 
   // Step 4
-  const [refNum, setRefNum] = useState(() => {
-    const suffix = Date.now().toString(36).toUpperCase().slice(-8);
-    return "HIBT-" + suffix;
-  });
+  const [refNum, setRefNum] = useState(() => makeRefNum(DEFAULT_ASSET_NAME));
   const [submitted,     setSubmitted]     = useState(false);
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState<string | null>(null);
   const [txHash,        setTxHash]        = useState<string | null>(null);
+  const [mintTxHash,    setMintTxHash]    = useState<string | null>(null);
   const [onChain,       setOnChain]       = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"swift" | "onchain">("onchain");
   const [paying,        setPaying]        = useState(false);
   const [payError,      setPayError]      = useState<string | null>(null);
   const [paymentTxHash, setPaymentTxHash] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<"Idle" | "Submitted" | "Pending" | "Confirmed" | "Failed" | "Skipped">("Idle");
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+  const [casperPublicKey, setCasperPublicKey] = useState<string | null>(null);
 
-  const TREASURY   = process.env.NEXT_PUBLIC_TREASURY_ADDRESS ?? "";
+  const CASPER_TREASURY = process.env.NEXT_PUBLIC_CASPER_TREASURY_PUBLIC_KEY ?? "Configured server-side";
 
   const assetCode = buildRefPrefix(assetName).replace("-", "");
   const selectedAsset = approvedAssets.find((asset) => asset.name === assetName) ?? approvedAssets[0] ?? { name: assetName, unitPrice: 1000 };
@@ -110,12 +108,14 @@ export default function SubscribePage() {
       try {
         setAssetsLoading(true);
         setAssetsError(null);
-        const [sfcRes, sponsorRes] = await Promise.all([
+        const [sfcRes, sponsorRes, deploymentsRes] = await Promise.all([
           fetch("/api/sfc-inbox"),
           fetch("/api/sponsor-inbox"),
+          fetch("/api/tokenize/deployments"),
         ]);
         const sfcData = await sfcRes.json() as { submissions?: ApprovedAsset[] };
         const sponsorData = await sponsorRes.json() as { submissions?: SponsorAsset[] };
+        const deploymentsData = await deploymentsRes.json() as Record<string, { assetName?: string; network?: string; standard?: string; status?: string }>;
 
         const sponsorPriceMap = new Map(
           (sponsorData.submissions ?? []).map((entry) => [entry.assetName, Number(entry.unitPrice ?? "0")])
@@ -133,16 +133,38 @@ export default function SubscribePage() {
 
         const finalList = uniqueMap.size > 0
           ? Array.from(uniqueMap.values())
-          : [{ name: "Harbour Infrastructure Bond Token (HIBT)", unitPrice: 1000 }];
+          : [{ name: DEFAULT_ASSET_NAME, unitPrice: 1000 }];
+
+        // Prefer the latest Casper deployed asset by default to avoid subscription/deployment mismatch.
+        const casperDeployments = Object.values(deploymentsData ?? {}).filter((deployment) =>
+          (deployment.network ?? "").toLowerCase().includes("casper")
+          && (deployment.standard ?? "").toLowerCase().includes("casper")
+          && (deployment.status ?? "") !== "Failed"
+          && !!deployment.assetName?.trim()
+        );
+        const preferredAssetName = casperDeployments.length > 0
+          ? (casperDeployments[casperDeployments.length - 1].assetName ?? "").trim()
+          : "";
+
+        if (preferredAssetName && !finalList.some((asset) => asset.name === preferredAssetName)) {
+          finalList.unshift({ name: preferredAssetName, unitPrice: 1000 });
+        }
+
         if (!active) return;
         setApprovedAssets(finalList);
-        if (!finalList.some((asset) => asset.name === assetName)) {
-          setAssetName(finalList[0].name);
-        }
+        setAssetName((currentAssetName) => {
+          if (currentAssetName === DEFAULT_ASSET_NAME && preferredAssetName) {
+            setRefNum(makeRefNum(preferredAssetName));
+            return preferredAssetName;
+          }
+          if (finalList.some((asset) => asset.name === currentAssetName)) return currentAssetName;
+          setRefNum(makeRefNum(finalList[0].name));
+          return finalList[0].name;
+        });
       } catch {
         if (!active) return;
         setAssetsError("Failed to load approved assets");
-        setApprovedAssets([{ name: "Harbour Infrastructure Bond Token (HIBT)", unitPrice: 1000 }]);
+        setApprovedAssets([{ name: DEFAULT_ASSET_NAME, unitPrice: 1000 }]);
       } finally {
         if (active) setAssetsLoading(false);
       }
@@ -155,13 +177,9 @@ export default function SubscribePage() {
     };
   }, []);
 
-  useEffect(() => {
-    const suffix = Date.now().toString(36).toUpperCase().slice(-8);
-    setRefNum(buildRefPrefix(assetName) + suffix);
-  }, [assetName]);
-
-  const effectiveWalletAddress = connectedWallet || walletAddress;
-  const effectiveKycConfirmed  = kycConfirmed || !!connectedWallet;
+  const kycWalletAddress = walletAddress || connectedWallet || "";
+  const effectiveWalletAddress = casperPublicKey || kycWalletAddress;
+  const effectiveKycConfirmed  = kycConfirmed;
 
   const tokenCount   = parseInt(tokens) || 0;
   const principal    = tokenCount * faceValue;
@@ -169,31 +187,54 @@ export default function SubscribePage() {
   const annualMgmt   = principal * ANNUAL_MGMT_FEE;
   const custodyAnn   = principal * CUSTODY_FEE;
   const totalDue     = principal + subFee;
-  // Demo rate: 1 MNT = USD 1,000 (testnet demo only; real USD value shown separately)
-  const mntAmount    = totalDue / 1000;
+  // Demo rate: 1 CSPR = USD 1,000, with Casper's minimum native-transfer amount applied on testnet.
+  const csprQuote     = totalDue / 1000;
+  const csprAmount    = Math.max(csprQuote, MIN_CSPR_TRANSFER);
   const semiCoupon   = tokenCount * faceValue * COUPON_RATE / 2;
+  const paymentFinal = paymentStatus === "Confirmed" || paymentStatus === "Skipped";
+  const paymentStatusText = paymentFinal ? "Payment confirmed" : paymentStatus === "Pending" ? "Payment pending finality" : "Payment submitted";
 
-  const hkdRate      = 7.8;
   const displayAmt   = (n: number) =>
     "USD " + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-  function step1Valid() { return effectiveKycConfirmed && piConfirmed && notUSPerson && /^0x[0-9a-fA-F]{40}$/.test(effectiveWalletAddress); }
+  function step1Valid() { return effectiveKycConfirmed && piConfirmed && notUSPerson; }
 
-  async function handleConfirmSubscription(pmtTxHash?: string) {
+  async function handleConfirmSubscription(pmtTxHash?: string, walletOverride?: string) {
     setSubmitting(true);
     setSubmitError(null);
+    setPaymentNotice(null);
     try {
+      const subscriptionWallet = walletOverride ?? effectiveWalletAddress;
       const res = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ walletAddress: effectiveWalletAddress, tokenCount, assetName, refNum, paymentTxHash: pmtTxHash ?? paymentTxHash }),
+        body: JSON.stringify({
+          walletAddress: kycWalletAddress || subscriptionWallet,
+          casperPublicKey: casperPublicKey ?? walletOverride ?? undefined,
+          tokenCount,
+          assetName,
+          refNum,
+          paymentTxHash: pmtTxHash ?? paymentTxHash,
+        }),
       });
       const data = await res.json();
+      if (res.status === 202) {
+        setPaymentTxHash(data.paymentTxHash ?? pmtTxHash ?? paymentTxHash ?? null);
+        setPaymentStatus(data.paymentStatus ?? "Pending");
+        setPaymentNotice(data.message ?? "CSPR payment submitted; waiting for Casper finality before RWA token credit.");
+        setOnChain(false);
+        setMintTxHash(null);
+        return;
+      }
       if (!res.ok) {
+        setPaymentStatus(data.paymentStatus ?? "Failed");
         setSubmitError(data.error ?? data.message ?? "Submission failed");
         return;
       }
       setTxHash(data.txHash ?? null);
+      setMintTxHash(data.mintTxHash ?? data.txHash ?? null);
+      setPaymentStatus(data.paymentStatus ?? "Confirmed");
+      setPaymentNotice(data.message ?? null);
       setOnChain(!!data.onChain);
       setSubmitted(true);
     } catch (e) {
@@ -206,22 +247,57 @@ export default function SubscribePage() {
   async function handleOnChainPayment() {
     setPaying(true);
     setPayError(null);
+    setPaymentNotice(null);
+    setPaymentStatus("Idle");
     try {
-      if (!walletClient) throw new Error("No wallet connected. Please connect your wallet.");
-      if (!TREASURY) throw new Error("Treasury address not configured.");
-      const weiAmt = BigInt(Math.round(mntAmount * 1e18));
-      const pmtHash = await walletClient.sendTransaction({
-        to:    TREASURY as `0x${string}`,
-        value: weiAmt,
+      const amountMotes = BigInt(Math.round(csprAmount * 1_000_000_000)).toString();
+      const { publicKey } = await connectCasperWallet();
+      setCasperPublicKey(publicKey);
+
+      const buildRes = await fetch("/api/subscribe/casper-transfer/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderPublicKeyHex: publicKey, amountMotes, refNum }),
       });
-      // MetaMask confirmed — show success immediately; record in background
-      setPaying(false);
+      const buildData = await buildRes.json() as {
+        deployJson?: unknown;
+        deployHash?: string;
+        error?: string;
+      };
+      if (!buildRes.ok || !buildData.deployJson) {
+        throw new Error(buildData.error ?? "Failed to build Casper transfer deploy");
+      }
+
+      const signature = await signCasperDeploy(buildData.deployJson, publicKey);
+      const signatureHex = signature.signatureHex ?? (signature.signature ? bytesToHex(signature.signature) : undefined);
+      if (!signatureHex) {
+        throw new Error("Casper Wallet did not return signatureHex");
+      }
+
+      const submitRes = await fetch("/api/subscribe/casper-transfer/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deployJson: buildData.deployJson,
+          signatureHex,
+          signingPublicKeyHex: publicKey,
+          refNum,
+        }),
+      });
+      const submitData = await submitRes.json() as { deployHash?: string; txHash?: string; transactionHash?: string; status?: string; error?: string };
+      if (!submitRes.ok || (!submitData.deployHash && !submitData.txHash && !submitData.transactionHash)) {
+        throw new Error(submitData.error ?? "Failed to submit signed Casper transfer");
+      }
+
+      const pmtHash = submitData.transactionHash ?? submitData.deployHash ?? submitData.txHash ?? "";
       setPaymentTxHash(pmtHash);
-      setSubmitted(true);
-      // Fire-and-forget: record subscription and attempt on-chain mint
-      void handleConfirmSubscription(pmtHash);
+      setPaymentStatus("Submitted");
+      setPaymentNotice("CSPR payment submitted; waiting for Casper confirmation before RWA token credit.");
+      await handleConfirmSubscription(pmtHash, publicKey);
     } catch (e) {
+      setPaymentStatus("Failed");
       setPayError(e instanceof Error ? e.message : "Payment failed");
+    } finally {
       setPaying(false);
     }
   }
@@ -310,7 +386,7 @@ export default function SubscribePage() {
                           <>
                             <input
                               type="text" readOnly
-                              value={walletAddress}
+                              value={kycWalletAddress}
                               className="w-full text-xs rounded px-2.5 py-1.5 font-mono outline-none mt-1"
                               style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a", color: "#15803d" }}
                             />
@@ -379,7 +455,15 @@ export default function SubscribePage() {
             </label>
             <select
               value={assetName}
-              onChange={(e) => setAssetName(e.target.value)}
+              onChange={(e) => {
+                const nextAssetName = e.target.value;
+                setAssetName(nextAssetName);
+                setRefNum(makeRefNum(nextAssetName));
+                setPaymentTxHash(null);
+                setMintTxHash(null);
+                setPaymentStatus("Idle");
+                setPaymentNotice(null);
+              }}
               disabled={assetsLoading}
               className="w-full text-sm rounded px-3 py-2.5 text-slate-900 outline-none transition-colors"
               style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}
@@ -412,7 +496,13 @@ export default function SubscribePage() {
                 className="w-48 text-sm rounded px-3 py-2.5 text-slate-900 outline-none transition-colors font-mono"
                 style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}
                 value={tokens}
-                onChange={(e) => setTokens(e.target.value)}
+                onChange={(e) => {
+                  setTokens(e.target.value);
+                  setPaymentTxHash(null);
+                  setMintTxHash(null);
+                  setPaymentStatus("Idle");
+                  setPaymentNotice(null);
+                }}
                 onFocus={(e)  => (e.currentTarget.style.borderColor = "#1a56db")}
                 onBlur={(e)   => (e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)")}
               />
@@ -589,7 +679,7 @@ export default function SubscribePage() {
                 background: paymentMethod === "onchain" ? "#1d4ed8" : "#ffffff",
                 color: paymentMethod === "onchain" ? "#ffffff" : "#64748b",
               }}>
-              On-chain (MNT via wallet)
+              On-chain (CSPR via Casper Wallet)
             </button>
             <button
               type="button"
@@ -636,22 +726,23 @@ export default function SubscribePage() {
             </>
           )}
 
-          {/* ── On-chain MNT payment ── */}
+          {/* ── On-chain CSPR payment ── */}
           {paymentMethod === "onchain" && (
             <>
               <p className="text-xs text-slate-500 -mt-2">
-                Send MNT directly from your connected wallet. {assetCode} tokens will be minted to your wallet atomically after on-chain payment is confirmed.
+                Send a native CSPR transfer through Casper Wallet. {assetCode} tokens will be recorded after the Casper payment transaction is confirmed.
               </p>
               <div className="rounded p-4 space-y-3 text-xs"
                 style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                 <div className="text-[10px] text-slate-600 uppercase tracking-wide font-medium mb-1">On-chain Payment Details</div>
                 {[
-                  ["Network",           "Mantle Sepolia Testnet (Chain ID: 5003)"],
-                  ["Payment Token",     "Native MNT"],
-                  ["Amount (testnet)",     mntAmount.toFixed(4) + " MNT"],
+                  ["Network",           "Casper Testnet"],
+                  ["Payment Token",     "Native CSPR"],
+                  ["Amount (testnet)",  csprAmount.toFixed(4) + " CSPR"],
                   ["Real USD Value",    displayAmt(totalDue)],
-                  ["Recipient",         TREASURY],
-                  ["Settlement",        `Atomic — ${assetCode} minted in same block after payment`],
+                  ...(csprAmount > csprQuote ? [["Testnet minimum", `${MIN_CSPR_TRANSFER.toFixed(1)} CSPR native transfer floor`]] : []),
+                  ["Recipient",         CASPER_TREASURY],
+                  ["Settlement",        `${assetCode} subscription recorded after Casper transfer confirmation`],
                 ].map(([k, v]) => (
                   <div key={k} className="flex gap-4">
                     <span className="text-slate-600 w-40 shrink-0">{k}</span>
@@ -660,10 +751,30 @@ export default function SubscribePage() {
                 ))}
               </div>
               {paymentTxHash && (
+                <div className={`rounded px-3 py-2 text-xs flex items-center gap-2 ${paymentFinal ? "text-emerald-700" : "text-amber-700"}`}
+                  style={paymentFinal
+                    ? { background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a" }
+                    : { background: "rgba(254,243,199,0.8)", border: "1px solid rgba(217,119,6,0.3)" }}>
+                  <span>{paymentFinal ? "✓" : "..."}</span>
+                  <span>{paymentStatusText}: <a href={`https://testnet.cspr.live/deploy/${paymentTxHash}`} target="_blank" rel="noopener noreferrer" className="underline font-mono">{paymentTxHash.slice(0, 20)}…</a></span>
+                </div>
+              )}
+              {mintTxHash && (
                 <div className="rounded px-3 py-2 text-xs text-emerald-700 flex items-center gap-2"
                   style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a" }}>
                   <span>&#10003;</span>
-                  <span>Payment sent: <a href={`https://sepolia.mantlescan.xyz/tx/${paymentTxHash}`} target="_blank" rel="noopener noreferrer" className="underline font-mono">{paymentTxHash.slice(0, 20)}…</a></span>
+                  <span>RWA token credit: <a href={`https://testnet.cspr.live/deploy/${mintTxHash}`} target="_blank" rel="noopener noreferrer" className="underline font-mono">{mintTxHash.slice(0, 20)}…</a></span>
+                </div>
+              )}
+              {paymentNotice && !submitted && (
+                <div className="rounded px-3 py-2 text-xs text-amber-700"
+                  style={{ background: "rgba(254,243,199,0.8)", border: "1px solid rgba(217,119,6,0.3)" }}>
+                  {paymentNotice}
+                </div>
+              )}
+              {casperPublicKey && (
+                <div className="text-[10px] text-slate-500 font-mono break-all">
+                  Casper signer: {casperPublicKey}
                 </div>
               )}
               {payError && (
@@ -692,15 +803,27 @@ export default function SubscribePage() {
                 disabled={submitting}
                 className="px-6 py-2.5 text-sm font-semibold rounded text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 style={{ background: "#1d4ed8" }}>
-                {submitting ? "Submitting to Mantle..." : "Confirm Subscription Order"}
+                {submitting ? "Submitting to Casper..." : "Confirm Subscription Order"}
               </button>
             ) : (
               <button
-                onClick={handleOnChainPayment}
-                disabled={paying || submitting || !!paymentTxHash}
+                onClick={() => {
+                  if (paymentTxHash) {
+                    void handleConfirmSubscription(paymentTxHash, casperPublicKey ?? effectiveWalletAddress);
+                  } else {
+                    void handleOnChainPayment();
+                  }
+                }}
+                disabled={paying || submitting || submitted}
                 className="px-6 py-2.5 text-sm font-semibold rounded text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 style={{ background: "#059669" }}>
-                {paying ? "Waiting for wallet..." : submitting ? `Minting ${assetCode}...` : paymentTxHash ? "Payment Sent \u2713" : `Pay ${mntAmount.toFixed(4)} MNT via wallet`}
+                {paying
+                  ? "Waiting for Casper Wallet..."
+                  : submitting
+                    ? `Crediting ${assetCode}...`
+                    : paymentTxHash
+                      ? "Retry payment confirmation and RWA credit"
+                      : `Pay ${csprAmount.toFixed(4)} CSPR via Casper Wallet`}
               </button>
             )}
           </div>
@@ -718,7 +841,7 @@ export default function SubscribePage() {
           <p className="text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
             Your order for <span className="text-slate-900 font-semibold">{tokenCount} {assetCode} tokens</span> ({displayAmt(principal)}) has been recorded.
             {paymentMethod === "onchain"
-              ? " Your on-chain payment has been confirmed and tokens have been minted to your wallet."
+              ? " Your native CSPR payment has been confirmed and RWA token credit has been recorded on the Casper TokenCoupon contract."
               : " Wire the subscription funds using the payment reference below to complete settlement."}
           </p>
 
@@ -734,11 +857,12 @@ export default function SubscribePage() {
             {[
               ["Wire Transfer",     "Send " + displayAmt(totalDue) + " to HSBC escrow with reference " + refNum],
               ["Funds Reconciled",  "Harbour Capital matches your incoming payment to the reference within 1 business day"],
+              ["CSPR Payment",      paymentTxHash
+                ? `Native transfer TxHash: ${paymentTxHash.slice(0, 18)}…`
+                : paymentMethod === "swift" ? "Wire transfer pending" : "Payment pending"],
               ["Token Issuance",    onChain
-                ? `Minted on-chain. Mint TxHash: ${txHash?.slice(0, 18)}…`
-                : paymentTxHash
-                  ? `Payment TxHash: ${paymentTxHash.slice(0, 18)}… | Mint TxHash: ${txHash?.slice(0, 18) ?? "pending"}…`
-                  : "HarbourRWA's compliance system verifies settlement conditions, then issues tokens to your wallet"],
+                ? `TokenCoupon credit TxHash: ${mintTxHash?.slice(0, 18) ?? txHash?.slice(0, 18)}…`
+                : "HarbourRWA's compliance system verifies settlement conditions, then issues tokens to your wallet"],
               ["Token Delivery",    `${assetCode} tokens delivered to your whitelisted wallet on ${SETTLEMENT} (2 business days after confirmed payment)`],
               ["First Coupon",      "USD " + semiCoupon.toFixed(2) + " per semi-annual coupon from 15 Jan 2027"],
             ].map(([k, v]) => (

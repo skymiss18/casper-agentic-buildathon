@@ -1,92 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createPublicClient, createWalletClient, http, defineChain } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import artifact from "@/contracts/artifacts/contracts/HarbourRWAToken.sol/HarbourRWAToken.json";
+import { makeAssetIdCasper } from "@/lib/casper-chain";
+import { deployCasperTokenCoupon } from "@/lib/casper-token-deploy";
 
 export const runtime = "nodejs";
-// Real deployments can take >10 s on testnet
-export const maxDuration = 60;
+export const maxDuration = 300;
 
-const mantleSepolia = defineChain({
-  id: 5003,
-  name: "Mantle Sepolia",
-  nativeCurrency: { name: "MNT", symbol: "MNT", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.sepolia.mantle.xyz"] } },
-  blockExplorers: {
-    default: { name: "Mantlescan", url: "https://sepolia.mantlescan.xyz" },
-  },
-});
+function makeSymbol(assetName: string) {
+  const parenSymbol = assetName.match(/\(([A-Z0-9]{2,12})\)/)?.[1];
+  if (parenSymbol) return parenSymbol.slice(0, 12);
+  return assetName.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "HRWA";
+}
 
 // POST /api/tokenize/deploy
-// Body: { assetName, assetType, sfcRef, approvedBy, totalIssuance, currency }
-// Deploys a real HarbourRWAToken (ERC-3643) on Mantle Sepolia testnet
+// Body: { id, assetName, assetType, issuer, sfcRef, approvedBy, totalIssuance, currency }
+// Deploys the configured Casper TokenCoupon WASM to Casper Testnet.
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json() as {
+      id?: string;
+      assetName?: string;
+      assetType?: string;
+      issuer?: string;
+      sfcRef?: string;
+      approvedBy?: string;
+      totalIssuance?: string;
+      currency?: string;
+    };
 
-    const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
-    if (!privateKey) {
-      return NextResponse.json({ error: "DEPLOYER_PRIVATE_KEY not configured" }, { status: 500 });
-    }
+    const rawName = body.assetName?.trim() || "Harbour RWA Issuance";
+    const assetId = makeAssetIdCasper(rawName);
+    const symbol = makeSymbol(rawName);
+    const issuer = body.issuer?.trim() || "Harbour Capital Markets Corporation Limited";
+    const totalIssuance = body.totalIssuance?.trim() || "0";
+    const currency = body.currency?.trim() || "USD";
+    const sfcRef = body.sfcRef?.trim() || body.id || "";
 
-    const complianceModule = process.env.NEXT_PUBLIC_COMPLIANCE_MODULE_ADDRESS as `0x${string}`;
-    if (!complianceModule) {
-      return NextResponse.json({ error: "NEXT_PUBLIC_COMPLIANCE_MODULE_ADDRESS not configured" }, { status: 500 });
-    }
-
-    const couponToken = (process.env.NEXT_PUBLIC_USDY_ADDRESS ?? process.env.USDY_ADDRESS) as `0x${string}` | undefined;
-    if (!couponToken) {
-      return NextResponse.json({ error: "NEXT_PUBLIC_USDY_ADDRESS or USDY_ADDRESS not configured" }, { status: 500 });
-    }
-
-    const pk = (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as `0x${string}`;
-    const account = privateKeyToAccount(pk);
-
-    const publicClient = createPublicClient({
-      chain: mantleSepolia,
-      transport: http("https://rpc.sepolia.mantle.xyz"),
-    });
-    const walletClient = createWalletClient({
-      account,
-      chain: mantleSepolia,
-      transport: http("https://rpc.sepolia.mantle.xyz"),
-    });
-
-    // Derive a short symbol from the asset name (first 6 chars, uppercase, no spaces)
-    const rawName: string = body.assetName ?? "HARBOUR RWA TOKEN";
-    const symbol = rawName.replace(/\s+/g, "").toUpperCase().slice(0, 6) || "HRWAT";
-
-    // Deploy HarbourRWAToken(name, symbol, admin, complianceModule, couponToken)
-    const gasPrice = await publicClient.getGasPrice();
-    const safeGasPrice = gasPrice * 2n;
-    const txHash = await walletClient.deployContract({
-      abi: artifact.abi,
-      bytecode: artifact.bytecode as `0x${string}`,
-      args: [rawName, symbol, account.address, complianceModule, couponToken],
-      maxFeePerGas: safeGasPrice,
-      maxPriorityFeePerGas: safeGasPrice,
+    const result = await deployCasperTokenCoupon({
+      assetId,
+      assetName: rawName,
+      symbol,
+      issuer,
+      totalIssuance,
+      currency,
+      sfcRef,
+      complianceOracleHash: process.env.CASPER_COMPLIANCE_ORACLE_HASH,
+      identityRegistryHash: process.env.CASPER_IDENTITY_REGISTRY_HASH,
     });
 
-    // Wait for receipt (up to ~50 s)
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 50_000 });
+    const deployedAt = new Date().toISOString().slice(0, 10);
 
     return NextResponse.json({
       success: true,
-      txHash,
-      contractAddress: receipt.contractAddress ?? "",
-      blockNumber: Number(receipt.blockNumber),
-      network: "Mantle Sepolia",
-      deployedAt: new Date().toISOString().slice(0, 10),
+      txHash: result.deployHash,
+      deployHash: result.deployHash,
+      registrationId: result.deployHash,
+      assetId,
+      contractHash: result.contractHash,
+      contractAddress: result.contractHash,
+      blockNumber: null,
+      network: "Casper Testnet",
+      deployedAt,
       assetName: rawName,
       assetType: body.assetType ?? "",
-      sfcRef: body.sfcRef ?? "",
-      standard: "ERC-3643",
-      gasUsed: Number(receipt.gasUsed),
-      explorerUrl: `https://sepolia.mantlescan.xyz/tx/${txHash}`,
+      issuer,
+      sfcRef,
+      approvedBy: body.approvedBy ?? "",
+      totalIssuance,
+      currency,
+      standard: "Casper Token/Coupon WASM",
+      status: result.status,
+      pendingReason: result.pendingReason,
+      gasUsed: 0,
+      explorerUrl: result.explorerUrl,
     });
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Deploy failed" },
+      { error: err instanceof Error ? err.message : "Casper token deploy failed" },
       { status: 500 }
     );
   }

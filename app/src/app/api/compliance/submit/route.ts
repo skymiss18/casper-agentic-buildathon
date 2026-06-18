@@ -4,7 +4,7 @@ import { analyzeCompliance } from "@/lib/compliance";
 
 // POST /api/compliance/submit
 // Body: { text, assetType, assetName }
-// Runs AI compliance analysis and anchors the result on Mantle via ComplianceOracle
+// Runs AI compliance analysis and anchors the result through the configured Casper oracle path
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -34,15 +34,27 @@ export async function POST(req: NextRequest) {
 
     const oracleAddr = process.env.NEXT_PUBLIC_COMPLIANCE_ORACLE_ADDRESS ?? "0x0000000000000000000000000000000000000000";
     const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
-    const isConfigured = !!privateKey && oracleAddr !== "0x0000000000000000000000000000000000000000";
+    const casperKey = process.env.CASPER_ORACLE_KEY;
+    const casperHash = process.env.CASPER_COMPLIANCE_ORACLE_HASH;
+    const isMantle = !!privateKey && oracleAddr !== "0x0000000000000000000000000000000000000000";
+    const isCasper = !!casperKey && !!casperHash;
+    const selectedOracleChain = process.env.NEXT_PUBLIC_ORACLE_CHAIN === "mantle" ? "mantle" : "casper";
+    const isConfigured = selectedOracleChain === "casper" ? isCasper : isMantle;
     const reportHash = makeReportHash(reportPayload);
 
     let txHash: string | null = null;
+    let explorerUrl: string | null = null;
     if (isConfigured) {
-      txHash = await submitScoreOnChain(assetId, result.score, reportPayload);
+      const result2 = await submitScoreOnChain(assetId, result.score, reportPayload, assetName);
+      txHash = result2.txHash;
+      explorerUrl = result2.explorerUrl ?? null;
     }
 
-    const isMainnet = process.env.NEXT_PUBLIC_CHAIN_ID === "5000";
+    if (!explorerUrl && txHash) {
+      explorerUrl = process.env.NEXT_PUBLIC_ORACLE_CHAIN === "casper"
+        ? `https://testnet.cspr.live/deploy/${txHash}`
+        : null;
+    }
 
     return NextResponse.json({
       assetId,
@@ -57,9 +69,7 @@ export async function POST(req: NextRequest) {
       onChain: !!txHash,
       txHash,
       reportHash,
-      explorerUrl: txHash
-        ? `${isMainnet ? "https://mantlescan.xyz" : "https://sepolia.mantlescan.xyz"}/tx/${txHash}`
-        : null,
+      explorerUrl,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {

@@ -427,11 +427,11 @@ export default function PortfolioPage() {
           <h1 className="text-2xl font-bold text-gray-900">Investor Portfolio</h1>
           <p className="text-sm text-slate-600 mt-1.5">
             Token holdings and yield dashboard on{" "}
-            <span className="text-blue-400">Mantle Network</span>
+            <span className="text-blue-400">Casper Network</span>
           </p>
           {connected && (
             <p className="text-[11px] text-slate-600 mt-2">
-              {portfolioLoading ? `Loading live ${assetCode} position...` : portfolioError ? portfolioError : hibtPosition?.livePosition ? `${assetCode} balance synced from HarbourRWAToken on Mantle.` : `No live ${assetCode} token position detected; showing estimated schedule alongside live wallet context.`}
+              {portfolioLoading ? `Loading live ${assetCode} position...` : portfolioError ? portfolioError : hibtPosition?.livePosition ? `${assetCode} balance synced from HarbourRWAToken on Casper.` : `No live ${assetCode} token position detected; showing estimated schedule alongside live wallet context.`}
             </p>
           )}
         </div>
@@ -446,7 +446,7 @@ export default function PortfolioPage() {
             style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
             <span className="font-mono text-slate-700">{wallet.slice(0, 12)}...{wallet.slice(-6)}</span>
-            <span className="text-slate-600">Mantle</span>
+            <span className="text-slate-600">Casper</span>
           </div>
         )}
       </div>
@@ -650,7 +650,7 @@ export default function PortfolioPage() {
           <div className="rounded p-5 mb-8" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <div className="text-sm font-semibold text-slate-900">Mantle Yield Routing</div>
+                <div className="text-sm font-semibold text-slate-900">Casper Yield Routing</div>
                 <div className="text-[11px] text-slate-600 mt-0.5">USDY (Ondo) + mETH Protocol · AI-driven auto-rebalance</div>
               </div>
               <div className="flex items-center gap-2">
@@ -680,7 +680,7 @@ export default function PortfolioPage() {
               <div className="grid grid-cols-2 gap-4">
                 {[
                   { label: "USDY", sublabel: "Ondo Finance · USD T-bill", apy: "5.00%", pct: 55, color: "#1a56db", tag: "Mainnet: 0x5bE2...A6" },
-                  { label: "mETH", sublabel: "Mantle ETH Staking",         apy: "3.80%", pct: 45, color: "#8b5cf6", tag: "Mainnet: 0xcDA8...B0" },
+                  { label: "mETH", sublabel: "Casper staking",         apy: "3.80%", pct: 45, color: "#8b5cf6", tag: "Mainnet: 0xcDA8...B0" },
                 ].map((item) => (
                   <div key={item.label} className="rounded p-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                     <div className="flex items-center justify-between mb-2">
@@ -736,7 +736,7 @@ export default function PortfolioPage() {
                   {rebalanceResult.txHash && (
                     <div className="flex justify-between items-center pt-1">
                       <span className="text-slate-500">On-chain txHash</span>
-                      <a href={`https://sepolia.mantlescan.xyz/tx/${rebalanceResult.txHash}`}
+                      <a href={`https://testnet.cspr.live/transaction/${rebalanceResult.txHash}`}
                         target="_blank" rel="noreferrer"
                         className="text-blue-400 hover:underline font-mono text-[10px]">
                         {rebalanceResult.txHash.slice(0, 16)}...                      </a>
@@ -845,7 +845,7 @@ export default function PortfolioPage() {
               </div>
               <div className="px-5 pt-2 pb-4 space-y-4">
                 <div className="text-[11px] text-slate-600 mb-2">
-                  From <code className="text-blue-500">ComplianceOracle.sol</code> on Mantle Network
+                  From <code className="text-blue-500">ComplianceOracle.sol</code> on Casper Network
                 </div>
                 {holdings.map((a) => (
                   <div key={a.name}>
@@ -861,9 +861,9 @@ export default function PortfolioPage() {
                     </div>
                   </div>
                 ))}
-                <a href="https://mantlescan.xyz" target="_blank" rel="noopener noreferrer"
+                <a href="https://cspr.live" target="_blank" rel="noopener noreferrer"
                   className="block text-[11px] text-slate-600 hover:text-slate-400 text-center mt-2 transition-colors">
-                  View on Mantle Explorer
+                  View on Casper Explorer
                 </a>
               </div>
             </div>

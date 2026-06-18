@@ -50,7 +50,7 @@ function buildSystemPrompt(holdings: AssetInfo[]): string {
     ? (holdings.reduce((s, h) => s + parseHoldingYield(h.yield), 0) / holdings.length).toFixed(1) + "% p.a."
     : "n/a";
 
-  return `You are an AI wealth advisor for HarbourRWA, an institutional RWA tokenisation platform on Mantle Network.
+  return `You are an AI wealth advisor for HarbourRWA, an institutional RWA tokenisation platform on Casper Network.
 You speak to professional investors (PI) and institutional clients. Be precise, factual, and concise.
 Today's date is 12 May 2026.
 
@@ -64,7 +64,7 @@ ${holdingsSummary}
 Full name: Harbour Infrastructure Bond Token (HIBT) — Series 2026-B
 Issuer: Harbour Capital Markets Corporation Limited
 SFC Authorisation: SFC/HIBT/2026-B/001
-Token standard: ERC-3643 on Mantle Network (Chain ID 5000)
+Token standard: ERC-3643 on Casper Network (Chain ID 5000)
 Face value: USD 1,000 per token
 Total issuance: USD 100,000,000 (100,000 tokens)
 Coupon rate: 5.50% per annum, semi-annual
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
       reply = "HIBT is the Harbour Infrastructure Bond Token — USD 1,000 face value, 5.50% p.a. coupon, maturing 15 July 2031. Minimum subscription USD 20,000 (20 tokens). Subscription deadline is 30 June 2026.";
       action = "subscribe";
     } else if (lastMsg.includes("kyc") || lastMsg.includes("register")) {
-      reply = "KYC registration is required before you can receive or transfer HIBT tokens. The process verifies your identity and whitelists your wallet in IdentityRegistry.sol on Mantle Network.";
+      reply = "KYC registration is required before you can receive or transfer HIBT tokens. The process verifies your identity and whitelists your wallet in IdentityRegistry.sol on Casper Network.";
       action = "kyc";
     } else if (lastMsg.includes("compliance") || lastMsg.includes("audit") || lastMsg.includes("score")) {
       reply = "HIBT smart contracts were audited by PeckShield with 0 Critical and 0 High findings. 2 Medium issues were remediated before deployment. Compliance score reflects real-time on-chain rule evaluation.";
