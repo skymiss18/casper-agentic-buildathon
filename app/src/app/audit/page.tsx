@@ -714,7 +714,7 @@ export default function AuditPage() {
 
             <h1 className="text-2xl font-bold text-gray-900">Smart Contract Audit</h1>
             <div className="mt-2 inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium" style={{ background: "rgba(99,102,241,0.08)", color: "#4f46e5", border: "1px solid rgba(99,102,241,0.18)" }}>
-              <span>Conducted by HarbourRWA AI Audit Engine</span>
+              <span>Conducted by NexusRWA AI Audit Engine</span>
               <span className="text-slate-400">·</span>
               <span className="text-slate-500 font-normal">Independent of reviewing Intermediary (Type 6 LC)</span>
             </div>

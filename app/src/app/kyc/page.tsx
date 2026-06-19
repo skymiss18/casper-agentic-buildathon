@@ -352,7 +352,7 @@ export default function KYCPage() {
       <div className="mb-8 pb-5" style={{ borderBottom: "1px solid #152538" }}>
         <h1 className="text-2xl font-bold text-gray-900">Investor KYC Application</h1>
         <p className="text-sm text-slate-600 mt-1.5 max-w-xl">
-          Complete AMLO (Cap. 615)-compliant identity verification to subscribe to HIBT.
+          Complete AMLO (Cap. 615)-compliant identity verification to subscribe to NIBT.
           Your wallet will be whitelisted on{" "}
           <span className="font-mono text-blue-400 text-xs">IdentityRegistry.sol</span>{" "}
           after document review.
@@ -534,7 +534,7 @@ export default function KYCPage() {
             <input
               className="w-full text-sm rounded px-3 py-2.5 text-slate-800 outline-none transition-colors"
               style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}
-              placeholder={form.investorType === "individual" ? "e.g. Director, ABC Investment Ltd" : "e.g. Harbour Capital Management Ltd"}
+              placeholder={form.investorType === "individual" ? "e.g. Director, ABC Investment Ltd" : "e.g. Nexus Capital Management Ltd"}
               value={form.occupation}
               onChange={(e) => setField("occupation", e.target.value)}
               onFocus={(e)  => (e.currentTarget.style.borderColor = "#1a56db")}
@@ -682,7 +682,7 @@ export default function KYCPage() {
             </label>
             <p className="text-[11px] text-slate-500 mb-1 leading-relaxed">
               Your wallet address is like your bank account number on the blockchain ...it starts with ...x...and is 42 characters long.
-              This address will be whitelisted in HarbourRWA’s investor registry so only you can hold HIBT tokens.
+              This address will be whitelisted in NexusRWA's investor registry so only you can hold NIBT tokens.
             </p>
             <p className="text-[11px] text-slate-600 mb-2">
               Don’t have a wallet yet?{" "}
@@ -846,7 +846,7 @@ export default function KYCPage() {
                 {
                   stage:    "3",
                   label:    "Identity & Address Verification",
-                  note:     "Manual review by Harbour Capital compliance team",
+                  note:     "Manual review by Nexus Capital compliance team",
                   status:   "active",
                   timeline: "2-3 business days",
                 },
@@ -926,12 +926,12 @@ export default function KYCPage() {
             <div className="space-y-1.5 text-slate-500">
               <p>You will receive an email notification at <span className="text-blue-400">{form.email || "your registered email"}</span> once the review is complete.</p>
               <p>Upon final approval, your wallet will be whitelisted and you may proceed to the subscription portal.</p>
-              <p className="text-slate-700">Questions: <a href="mailto:institutional@harbourcapital.hk" className="hover:underline">institutional@harbourcapital.hk</a></p>
+              <p className="text-slate-700">Questions: <a href="mailto:institutional@nexuscapital.hk" className="hover:underline">institutional@nexuscapital.hk</a></p>
             </div>
           </div>
 
           <div className="flex gap-3 justify-center">
-            <a href="mailto:institutional@harbourcapital.hk"
+            <a href="mailto:institutional@nexuscapital.hk"
               className="px-5 py-2.5 text-sm font-medium rounded text-slate-300 transition-colors hover:text-white"
               style={{ border: "1px solid rgba(0,0,0,0.10)" }}>
               Email Placement Agent
@@ -939,7 +939,7 @@ export default function KYCPage() {
           </div>
 
           <p className="text-[10px] text-slate-700 text-center pt-1">
-            SFC Authorisation Ref: SFC/HIBT/2026-B/001 &middot; Subscription Deadline: 30 Jun 2026 17:00 HKT
+            SFC Authorisation Ref: SFC/NIBT/2026-B/001 &middot; Subscription Deadline: 30 Jun 2026 17:00 HKT
           </p>
         </div>
       )}

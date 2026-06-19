@@ -58,24 +58,24 @@ const STATUS_CFG: Record<AppStatus, { color: string; bg: string; border: string;
 };
 
 const DEMO_PRESETS = {
-  HIBT: {
-    assetName: "Harbour Infrastructure Bond Token (HIBT)",
+  NIBT: {
+    assetName: "Nexus Infrastructure Bond Token (NIBT)",
     assetType: "Bond" as AssetType,
     description: "Tokenised corporate bond backed by Asia logistics infrastructure assets. 5-year tenor, 5.50% semi-annual coupon, SFC-authorised under SFO s.103. Casper-native issuance on Casper Network with AI compliance gating oracle.",
     unitPrice: "1000",
     totalSupply: "100000",
-    prospectusText: `PROSPECTUS — HARBOUR INFRASTRUCTURE BOND TOKEN (HIBT)
+    prospectusText: `PROSPECTUS — NEXUS INFRASTRUCTURE BOND TOKEN (NIBT)
 SFC-Authorised Corporate Bond | Series 2026-B
 
 ISSUER & ELIGIBILITY
-Issuer: Harbour Capital Markets Corporation Limited
+Issuer: Nexus Capital Markets Corporation Limited
 SFC Licence: Type 1 (Dealing in Securities) and Type 6 (Advising on Corporate Finance)
 under the Securities and Futures Ordinance (SFO) Cap. 571.
 Credit Rating: Moody's A2 / S&P A (Stable Outlook)
 
 BOND TERMS & STRUCTURE
 Token Standard:   Casper-native issuance on Casper Network
-Token Symbol:     HIBT
+Token Symbol:     NIBT
 Face Value:       USD 1,000 per token
 Total Issuance:   USD 100,000,000 (100,000 tokens)
 Coupon Rate:      5.50% per annum (semi-annual coupon payment)
@@ -99,7 +99,7 @@ AI-assisted identity verification with liveness check.
 On-chain identity registry via Casper IdentityRegistry contract.
 
 SMART CONTRACT SECURITY
-Smart contracts audited by PeckShield Inc. (Report ref: PS-2026-HIBT-001)
+Smart contracts audited by PeckShield Inc. (Report ref: PS-2026-NIBT-001)
 Zero critical or high-severity findings.
 
 TRANSFER RESTRICTIONS
@@ -216,7 +216,7 @@ export default function TokenizePage() {
           unitPrice:      form.unitPrice.trim(),
           totalSupply:    form.totalSupply.trim(),
           prospectusText: form.prospectusText.trim(),
-          issuer:         "Harbour Capital Markets Corporation Limited",
+          issuer:         "Nexus Capital Markets Corporation Limited",
           submittedAt:    new Date().toISOString(),
         }),
       });
@@ -468,7 +468,7 @@ export default function TokenizePage() {
                     <input
                       value={form.assetName}
                       onChange={(e) => setField("assetName", e.target.value)}
-                      placeholder="e.g. Harbour Infrastructure Bond Token (HIBT)"
+                      placeholder="e.g. Nexus Infrastructure Bond Token (NIBT)"
                       required
                       className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
                       style={{ background: "#f9f8f6", border: "1px solid rgba(0,0,0,0.12)", color: "#111111" }}
@@ -600,10 +600,10 @@ export default function TokenizePage() {
               <div className="px-4 py-3 space-y-3">
                 {([
                   {
-                    key: "HIBT",
-                    title: "HIBT Bond",
+                    key: "NIBT",
+                    title: "NIBT Bond",
                     facts: [["Supply", "100,000 tokens"], ["Coupon", "5.50% p.a."], ["Maturity", "15 Jul 2031"]],
-                    button: "Load HIBT",
+                    button: "Load NIBT",
                   },
                   {
                     key: "KCRT",

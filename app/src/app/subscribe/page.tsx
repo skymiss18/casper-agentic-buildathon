@@ -15,7 +15,7 @@ const MIN_TOKENS       = 20;
 const DEADLINE         = "30 June 2026, 17:00 HKT";
 const SETTLEMENT       = "15 July 2026";
 const MIN_CSPR_TRANSFER = 2.5; // Casper native transfers below this are rejected on testnet.
-const DEFAULT_ASSET_NAME = "Harbour Infrastructure Bond Token (HIBT)";
+const DEFAULT_ASSET_NAME = "Nexus Infrastructure Bond Token (NIBT)";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -377,7 +377,7 @@ export default function SubscribePage() {
                   KYC Approved
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  I confirm my wallet has been successfully KYC-verified and approved by HarbourRWA.
+                  I confirm my wallet has been successfully KYC-verified and approved by NexusRWA.
                   My compliance score is ...70/100.{" "}
                   <Link href="/kyc" className="text-blue-400 hover:underline">Complete KYC first &rarr;</Link>
                   <div className="mt-2">
@@ -592,7 +592,7 @@ export default function SubscribePage() {
                 className="mt-0.5 shrink-0 accent-blue-500" />
               <div className="text-xs text-slate-600 leading-relaxed">
                 <span className="text-slate-900 font-medium">Prospectus Receipt Confirmation: </span>
-                I confirm I have received, read, and understood the HIBT Prospectus (SFC/HIBT/2026-B/001),
+                I confirm I have received, read, and understood the NIBT Prospectus (SFC/NIBT/2026-B/001),
                 including all risk factors, fee structures, and redemption terms. I acknowledge the document
                 is committed to EigenDA with on-chain hash in the token contract.
               </div>
@@ -603,7 +603,7 @@ export default function SubscribePage() {
                 className="mt-0.5 shrink-0 accent-blue-500" />
               <div className="text-xs text-slate-600 leading-relaxed">
                 <span className="text-slate-900 font-medium">Conflict of Interest Acknowledgement: </span>
-                I acknowledge that Harbour Capital Markets Corporation Limited acts as both issuer and
+                I acknowledge that Nexus Capital Markets Corporation Limited acts as both issuer and
                 placement agent for this offering. This conflict has been disclosed in the prospectus
                 per SFC Code of Conduct para. 13.5, and I proceed on an informed basis.
               </div>
@@ -704,12 +704,12 @@ export default function SubscribePage() {
                 style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                 <div className="text-[10px] text-slate-600 uppercase tracking-wide font-medium mb-3">SWIFT Wire Transfer Details</div>
                 {[
-                  ["Beneficiary",       "Harbour Capital Markets Corporation Limited"],
+                  ["Beneficiary",       "Nexus Capital Markets Corporation Limited"],
                   ["Account No.",       "001-234567-001 (USD)"],
                   ["Bank",              "HSBC"],
                   ["SWIFT / BIC",       "HSBCHKHHHKH"],
                   ["Bank Address",      "1 Queen's Road Central"],
-                  ["Payment Reference", refNum + " / HIBT Subscription"],
+                  ["Payment Reference", refNum + " / NIBT Subscription"],
                   ["Payment Deadline",  "30 June 2026, 17:00 HKT"],
                 ].map(([k, v]) => (
                   <div key={k} className="flex gap-4">
@@ -856,13 +856,13 @@ export default function SubscribePage() {
             <div className="text-[10px] text-slate-600 uppercase tracking-wide font-medium mb-3">Settlement Timeline</div>
             {[
               ["Wire Transfer",     "Send " + displayAmt(totalDue) + " to HSBC escrow with reference " + refNum],
-              ["Funds Reconciled",  "Harbour Capital matches your incoming payment to the reference within 1 business day"],
+              ["Funds Reconciled",  "Nexus Capital matches your incoming payment to the reference within 1 business day"],
               ["CSPR Payment",      paymentTxHash
                 ? `Native transfer TxHash: ${paymentTxHash.slice(0, 18)}…`
                 : paymentMethod === "swift" ? "Wire transfer pending" : "Payment pending"],
               ["Token Issuance",    onChain
                 ? `TokenCoupon credit TxHash: ${mintTxHash?.slice(0, 18) ?? txHash?.slice(0, 18)}…`
-                : "HarbourRWA's compliance system verifies settlement conditions, then issues tokens to your wallet"],
+                : "NexusRWA's compliance system verifies settlement conditions, then issues tokens to your wallet"],
               ["Token Delivery",    `${assetCode} tokens delivered to your whitelisted wallet on ${SETTLEMENT} (2 business days after confirmed payment)`],
               ["First Coupon",      "USD " + semiCoupon.toFixed(2) + " per semi-annual coupon from 15 Jan 2027"],
             ].map(([k, v]) => (
@@ -885,7 +885,7 @@ export default function SubscribePage() {
             >
               Save as PDF
             </button>
-            <a href={"mailto:institutional@harbourcapital.hk?subject=" + encodeURIComponent(`${assetCode} Subscription ${refNum}`)}
+            <a href={"mailto:institutional@nexuscapital.hk?subject=" + encodeURIComponent(`${assetCode} Subscription ${refNum}`)}
               className="px-5 py-2.5 text-sm font-medium rounded text-slate-600 transition-colors hover:text-slate-900"
               style={{ border: "1px solid rgba(0,0,0,0.10)" }}>
               Email Placement Agent
@@ -898,7 +898,7 @@ export default function SubscribePage() {
           </div>
 
           <p className="text-[10px] text-slate-700 pt-2">
-            SFC Authorisation Ref: SFC/HIBT/2026-B/001 &middot; Subscription Deadline: 30 Jun 2026 17:00 HKT
+            SFC Authorisation Ref: SFC/NIBT/2026-B/001 &middot; Subscription Deadline: 30 Jun 2026 17:00 HKT
             &middot; Governing Law: SFC
           </p>
         </div>

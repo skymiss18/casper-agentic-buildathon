@@ -35,12 +35,12 @@ const GLOSSARY: Record<string, { label: string; definition: string }> = {
   "complianceoracle": {
     label: "ComplianceOracle.sol",
     definition:
-      "HarbourRWA's on-chain compliance ledger — a smart contract that permanently records audit results and regulatory approvals on the blockchain.",
+      "NexusRWA's on-chain compliance ledger — a smart contract that permanently records audit results and regulatory approvals on the blockchain.",
   },
   "identityregistry": {
     label: "IdentityRegistry.sol",
     definition:
-      "HarbourRWA's on-chain KYC whitelist — a smart contract that records which wallet addresses have been verified as eligible investors.",
+      "NexusRWA's on-chain KYC whitelist — a smart contract that records which wallet addresses have been verified as eligible investors.",
   },
   "professional-investor": {
     label: "Professional Investor",
@@ -60,7 +60,7 @@ const GLOSSARY: Record<string, { label: string; definition: string }> = {
   mantle: {
     label: "Casper Network",
     definition:
-      "A Layer-2 blockchain built on Ethereum — offering faster and cheaper transactions while inheriting Ethereum's security. HarbourRWA uses Casper Testnet for this demo.",
+      "A Layer-2 blockchain built on Ethereum — offering faster and cheaper transactions while inheriting Ethereum's security. NexusRWA uses Casper Testnet for this demo.",
   },
   "swift-bic": {
     label: "SWIFT BIC",

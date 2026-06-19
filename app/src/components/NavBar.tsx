@@ -216,14 +216,14 @@ export default function NavBar() {
           <Link href="/" className="flex items-center gap-2.5 shrink-0 mr-3 group">
             <Image
               src="/logo.png"
-              alt="HarbourRWA"
+              alt="NexusRWA"
               width={32}
               height={32}
               className="rounded-lg"
               priority
             />
             <span className="text-[13px] font-semibold tracking-tight hidden sm:block" style={{ color: "#111111", letterSpacing: "-0.01em" }}>
-              HarbourRWA
+              NexusRWA
             </span>
           </Link>
 

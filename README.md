@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-# HarbourRWA
+# NexusRWA
 
 ### *The First End-to-End Agentic Compliance & RWA Issuance Platform on Casper Network*
 
@@ -24,7 +24,7 @@ The global Real-World Asset tokenization market is projected to reach **$16 tril
 
 That is not a product. It is a proof-of-concept masquerading as infrastructure. Real regulated issuance requires AI compliance analysis **bound to verifiable outputs**, regulatory approval that is **enforceable on-chain**, investor identity checks that **physically gate the mint**, and post-issuance coupon servicing that is **not just a promise**.
 
-**HarbourRWA solves all of this — with every decision step anchored to Casper Testnet.**
+**NexusRWA solves all of this — with every decision step anchored to Casper Testnet.**
 
 ---
 
@@ -46,7 +46,7 @@ contract-255e2c83505b095d9eadb285282016d2bedfe926b93c721dadd3fc66f9be2ee7
 
 ---
 
-## What HarbourRWA Does
+## What NexusRWA Does
 
 A full-lifecycle, human-in-the-loop RWA issuance and servicing platform where AI agents accelerate regulated decisions and Casper Network makes those decisions enforceable. The pipeline covers 8 stages from first document to investor coupon claim.
 
@@ -97,7 +97,7 @@ The human roles — compliance officer, regulator, KYC admin — remain in the l
 
 ## Why Casper Network
 
-HarbourRWA is built Casper-first for reasons that matter specifically in regulated finance.
+NexusRWA is built Casper-first for reasons that matter specifically in regulated finance.
 
 | Casper Feature | Why It Matters for RWA |
 |---|---|
@@ -214,16 +214,16 @@ Trade Receivable (5 rules), Green Bond (1), and REIT (1) rules are evaluated whe
 
 ---
 
-## HIBT — Live Demonstration Asset
+## NIBT — Live Demonstration Asset
 
-**Harbour Infrastructure Bond Token (HIBT)** is the live demonstration asset deployed throughout this buildathon. It is modelled on a real SFC-authorised Hong Kong corporate bond to show that every platform feature maps to actual regulatory and financial requirements.
+**Nexus Infrastructure Bond Token (NIBT)** is the live demonstration asset deployed throughout this buildathon. It is modelled on a real SFC-authorised Hong Kong corporate bond to show that every platform feature maps to actual regulatory and financial requirements.
 
 | Property | Value |
 |---|---|
-| **Full Name** | Harbour Infrastructure Bond Token |
-| **Ticker** | HIBT |
-| **Issuer** | Harbour Capital Markets Corporation Limited |
-| **SFC Authorisation Ref** | SFC/HIBT/2026-B/001 |
+| **Full Name** | Nexus Infrastructure Bond Token |
+| **Ticker** | NIBT |
+| **Issuer** | Nexus Capital Markets Corporation Limited |
+| **SFC Authorisation Ref** | SFC/NIBT/2026-B/001 |
 | **SFC Licence** | Type 1 (Dealing in Securities) & Type 6 (Advising on Corporate Finance) |
 | **Asset Type** | Corporate Bond |
 | **Credit Rating** | Moody's A2 / S&P A (Stable Outlook) |
@@ -370,7 +370,7 @@ Testnet CSPR faucet: https://testnet.cspr.live/tools/faucet
 - Multi-agent DAO governance for issuer approval workflows
 - Machine-to-machine coupon servicing via autonomous agent settlement
 
-HarbourRWA demonstrates Casper as the **trust layer for AI-driven regulated finance**. Every AI agent decision in this system terminates at a Casper transaction.
+NexusRWA demonstrates Casper as the **trust layer for AI-driven regulated finance**. Every AI agent decision in this system terminates at a Casper transaction.
 
 ---
 
@@ -414,6 +414,6 @@ app/
 
 *Built for the Casper Agentic Buildathon 2026 · [dorahacks.io/hackathon/casper-agentic-buildathon](https://dorahacks.io/hackathon/casper-agentic-buildathon)*
 
-**HarbourRWA — Where AI Decisions Become On-Chain Law.**
+**NexusRWA — Where AI Decisions Become On-Chain Law.**
 
 </div>

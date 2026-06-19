@@ -55,7 +55,7 @@ interface PortfolioSummary {
 type EIP1193 = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
 
 const HIBT_PLACEHOLDER: AssetInfo[] = [
-  { name: "Harbour Infrastructure Bond Token (HIBT)", type: "Bond", balance: "0", value: "USD 0", yield: "5.5%", score: 91, maturity: "15 Jul 2031", coupon: "5.50% p.a.", live: false },
+  { name: "Nexus Infrastructure Bond Token (NIBT)", type: "Bond", balance: "0", value: "USD 0", yield: "5.5%", score: 91, maturity: "15 Jul 2031", coupon: "5.50% p.a.", live: false },
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -138,14 +138,14 @@ const RISK_LABELS: Record<RiskProfile, string> = {
 
 const SUGGESTIONS = [
   "What's my next coupon payment?",
-  "How does HIBT compare to my holdings?",
+  "How does NIBT compare to my holdings?",
   "What are the main risks in my portfolio?",
-  "Should I subscribe to HIBT?",
+  "Should I subscribe to NIBT?",
 ];
 
 // Action button config
 const ACTION_BUTTONS: Record<string, { label: string; href: string }> = {
-  subscribe: { label: "Subscribe to HIBT ->",  href: "/subscribe" },
+  subscribe: { label: "Subscribe to NIBT ->",  href: "/subscribe" },
   kyc:       { label: "Complete KYC ->",        href: "/kyc"      },
   audit:     { label: "View Audit Report ->",   href: "/audit"    },
 };
@@ -233,7 +233,7 @@ export default function PortfolioPage() {
     ? Math.round(holdings.reduce((sum, asset) => sum + asset.score, 0) / holdings.length)
     : 0;
   const liveHibtTokens = hibtPosition?.tokens ?? 0;
-  const assetCode = hibtPosition?.assetCode ?? "HIBT";
+  const assetCode = hibtPosition?.assetCode ?? "NIBT";
   const nextCouponPayout = hibtPosition ? `USD ${hibtPosition.nextCouponPayoutUsd.toFixed(2)}` : `USD ${(SEMI_ANNUAL_COUPON * 20).toFixed(2)}`;
 
   useEffect(() => {
@@ -305,7 +305,7 @@ export default function PortfolioPage() {
 
   function exportChat() {
     const lines: string[] = [
-      "HarbourRWA AI Wealth Advisor -- Conversation Export",
+      "NexusRWA AI Wealth Advisor -- Conversation Export",
       `Date: ${TODAY.toDateString()}`,
       `Wallet: ${wallet}`,
       `Risk Profile: ${RISK_LABELS[riskProfile]}`,
@@ -901,7 +901,7 @@ export default function PortfolioPage() {
             <div className="flex items-center justify-between mb-2">
               <div>
                 <div className="text-sm font-semibold text-slate-900">AI Wealth Advisor</div>
-                <div className="text-[10px] text-slate-600 mt-0.5">Qwen2.5-72B &middot; HarbourRWA context</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">Qwen2.5-72B &middot; NexusRWA context</div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">

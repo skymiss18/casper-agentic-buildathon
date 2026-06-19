@@ -92,9 +92,9 @@ const DEMO_DATA: FormState = {
 
   assetType:        "Bond",
 
-  assetName:        "Harbour Institutional Bond Token (HIBT)",
+  assetName:        "Nexus Institutional Bond Token (NIBT)",
 
-  issuerName:       "Harbour Capital Markets Corporation Limited",
+  issuerName:       "Nexus Capital Markets Corporation Limited",
 
   currency:         "USD",
 

@@ -4,7 +4,7 @@ import NavBar from "@/components/NavBar";
 import Providers from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "HarbourRWA | Institutional RWA Tokenisation Platform",
+  title: "NexusRWA | Institutional RWA Tokenisation Platform",
   description:
     "Enterprise-grade RWA tokenisation platform for professional investors. SFC compliant on Casper Network.",
 };
@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     <rect x="5.5" y="5.5" width="3.5" height="3.5" rx="0.5" fill="white" opacity="0.9" />
                   </svg>
                 </div>
-                <span>© 2026 Harbour Capital Markets Corporation · HarbourRWA</span>
+                <span>© 2026 Nexus Capital Markets Corporation · NexusRWA</span>
               </div>
               <div className="flex items-center gap-5">
                 <span className="flex items-center gap-1.5">

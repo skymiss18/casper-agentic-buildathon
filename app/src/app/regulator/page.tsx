@@ -24,11 +24,11 @@ const RECORDS = [
 
     id: "OC-2026-001",
 
-    asset: "Harbour Institutional Bond Token",
+    asset: "Nexus Institutional Bond Token",
 
     type: "Bond",
 
-    issuer: "Harbour Capital Markets Corp",
+    issuer: "Nexus Capital Markets Corp",
 
     score: 94,
 
@@ -338,7 +338,7 @@ export default function RegulatorPage() {
 
                 <p className="text-sm text-slate-400">
 
-                  On-chain compliance records · HarbourRWA Protocol · Casper Network
+                  On-chain compliance records · NexusRWA Protocol · Casper Network
 
                 </p>
 

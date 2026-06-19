@@ -58,9 +58,9 @@ export default function HomePage() {
             <div className="px-5 pt-5 pb-4">
               <div className="flex items-start justify-between mb-5">
                 <div>
-                  <div className="text-[10px] font-semibold mb-1.5" style={{ color: "#1a56db", letterSpacing: "0.08em" }}>HIBT · ERC-3643</div>
+                  <div className="text-[10px] font-semibold mb-1.5" style={{ color: "#1a56db", letterSpacing: "0.08em" }}>NIBT · ERC-3643</div>
                   <div className="text-[17px] font-semibold leading-snug" style={{ color: "#111111", fontFamily: "'Lora', Georgia, serif" }}>
-                    Harbour Infrastructure<br />Bond Token
+                    Nexus Infrastructure<br />Bond Token
                   </div>
                   <div className="text-[11px] mt-1" style={{ color: "#888888" }}>Casper Sepolia Testnet · Series 2026-B</div>
                 </div>
@@ -94,7 +94,7 @@ export default function HomePage() {
             <div className="px-5 py-3.5" style={{ borderTop: "1px solid rgba(0,0,0,0.07)", background: "#f7f5f0" }}>
               <a href="/subscribe"
                 className="btn-primary block w-full text-center text-xs font-semibold py-2.5 text-white rounded-lg">
-                Subscribe to HIBT →
+                Subscribe to NIBT →
               </a>
             </div>
           </div>
@@ -347,7 +347,7 @@ export default function HomePage() {
             <ol className="space-y-3">
               {[
                 { step: "1", href: "/kyc",       label: "Submit KYC",           desc: "AMLO (Cap.615) identity verification — wallet whitelisted on approval" },
-                { step: "2", href: "/subscribe", label: "Subscribe to HIBT",    desc: "Place order — mintForAsset() fires after compliance gate passes" },
+                { step: "2", href: "/subscribe", label: "Subscribe to NIBT",    desc: "Place order — mintForAsset() fires after compliance gate passes" },
                 { step: "3", href: "/portfolio", label: "Claim Coupons",        desc: "Track holdings and claim USDY-funded coupons on-chain" },
               ].map(({ step, href, label, desc }) => (
                 <li key={step}>
@@ -568,7 +568,7 @@ export default function HomePage() {
             </a>
             <a href="/subscribe"
               className="btn-outline px-8 py-3 text-sm font-medium rounded-lg">
-              Subscribe to HIBT
+              Subscribe to NIBT
             </a>
           </div>
         </div>

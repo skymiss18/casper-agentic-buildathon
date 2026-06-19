@@ -349,7 +349,7 @@ export default function IssuanceReviewPage() {
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {[
                           { label: "Issuer / Applicant",    value: selectedApp.issuer },
-                          { label: "Sponsoring Intermediary", value: `${selectedApp.sponsorLicence ?? "Type 6 LC"} — Harbour Capital Markets` },
+                          { label: "Sponsoring Intermediary", value: `${selectedApp.sponsorLicence ?? "Type 6 LC"} — Nexus Capital Markets` },
                           { label: "Asset Type",            value: tm.label },
                           { label: "Token Standard",        value: "ERC-3643 (Transfer-Restricted)" },
                           { label: "Blockchain Network",    value: "Casper Network (Chain ID 5003)" },
