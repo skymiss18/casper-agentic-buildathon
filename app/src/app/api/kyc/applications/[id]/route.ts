@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
-import {
-  publicClient,
-  getWalletClient,
-  IDENTITY_REGISTRY_ABI,
-  registryAddress,
-} from "@/lib/chain";
 
 export const runtime = "nodejs";
 
@@ -23,37 +16,6 @@ function readApps(): Record<string, unknown>[] {
 
 function writeApps(apps: Record<string, unknown>[]) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(apps, null, 2), "utf-8");
-}
-
-async function registerOnChain(app: Record<string, unknown>) {
-  try {
-    const walletAddress = app.walletAddress as `0x${string}`;
-    if (!walletAddress || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
-
-    const registryAddr = registryAddress();
-    if (registryAddr === "0x0000000000000000000000000000000000000000") return;
-
-    const jurisdiction = (app.jurisdiction as string) ?? "SG";
-    const jurisdictionBytes = keccak256(
-      encodeAbiParameters(parseAbiParameters("string"), [jurisdiction])
-    );
-    const kycExpiry = BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 3600); // 1 year
-
-    const walletClient = getWalletClient();
-    const gasPrice = await publicClient.getGasPrice();
-    const safeGasPrice = gasPrice * 2n;
-    await walletClient.writeContract({
-      address: registryAddr,
-      abi: IDENTITY_REGISTRY_ABI,
-      functionName: "upsertInvestor",
-      args: [walletAddress, true, true, jurisdictionBytes, kycExpiry],
-      maxFeePerGas: safeGasPrice,
-      maxPriorityFeePerGas: safeGasPrice,
-    });
-  } catch (err) {
-    // Log but don't fail the PATCH — on-chain registration is best-effort
-    console.error("[KYC approve] on-chain registration failed:", err instanceof Error ? err.message : err);
-  }
 }
 
 // PATCH /api/kyc/applications/[id] — intermediary updates status, aiScore, reviewNotes, txHash
@@ -72,7 +34,22 @@ export async function PATCH(
     }
 
     // Only allow updating safe fields; never overwrite id or submittedAt
-    const ALLOWED = ["status", "aiScore", "aiSummary", "aiBreakdown", "reviewNotes", "txHash"] as const;
+    const ALLOWED = [
+      "status",
+      "aiScore",
+      "aiSummary",
+      "aiBreakdown",
+      "reviewNotes",
+      "txHash",
+      "assetDeploymentId",
+      "assetId",
+      "assetName",
+      "network",
+      "explorerUrl",
+      "signerPublicKey",
+      "pendingReason",
+      "chainStatus",
+    ] as const;
     for (const key of ALLOWED) {
       if (key in patch) {
         apps[idx][key] = patch[key];
@@ -80,11 +57,6 @@ export async function PATCH(
     }
 
     writeApps(apps);
-
-    // When status changes to "approved", register investor on-chain immediately
-    if (patch.status === "approved") {
-      await registerOnChain(apps[idx]);
-    }
 
     return NextResponse.json({ application: apps[idx] });
   } catch (err) {

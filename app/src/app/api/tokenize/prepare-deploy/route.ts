@@ -57,6 +57,14 @@ export async function POST(req: NextRequest) {
     const rawName = body.assetName?.trim() || "Harbour RWA Issuance";
     const assetId = makeAssetIdCasper(rawName);
     const symbol = makeSymbol(rawName);
+    const identityRegistryHash = process.env.CASPER_IDENTITY_REGISTRY_HASH?.trim();
+
+    if (!identityRegistryHash) {
+      return NextResponse.json(
+        { error: "CASPER_IDENTITY_REGISTRY_HASH is not configured. Set the shared identity registry contract hash in app/.env.local." },
+        { status: 500 }
+      );
+    }
 
     const result = prepareCasperTokenDeploy({
       signerPublicKey: body.signerPublicKey.trim(),
@@ -68,7 +76,7 @@ export async function POST(req: NextRequest) {
       currency: body.currency?.trim() || "USD",
       sfcRef: body.sfcRef?.trim() || body.id?.trim() || "",
       complianceOracleHash: process.env.CASPER_COMPLIANCE_ORACLE_HASH?.trim() || undefined,
-      identityRegistryHash: process.env.CASPER_IDENTITY_REGISTRY_HASH?.trim() || undefined,
+      identityRegistryHash,
       mintAuthorityPublicKey,
     });
 

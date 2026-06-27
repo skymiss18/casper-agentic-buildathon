@@ -95,6 +95,7 @@ export default function SubscribePage() {
   const [paymentStatus, setPaymentStatus] = useState<"Idle" | "Submitted" | "Pending" | "Confirmed" | "Failed" | "Skipped">("Idle");
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
   const [casperPublicKey, setCasperPublicKey] = useState<string | null>(null);
+  const [contractHash, setContractHash] = useState<string | null>(null);
 
   const CASPER_TREASURY = process.env.NEXT_PUBLIC_CASPER_TREASURY_PUBLIC_KEY ?? "Configured server-side";
 
@@ -109,13 +110,19 @@ export default function SubscribePage() {
         setAssetsLoading(true);
         setAssetsError(null);
         const [sfcRes, sponsorRes, deploymentsRes] = await Promise.all([
-          fetch("/api/sfc-inbox"),
-          fetch("/api/sponsor-inbox"),
-          fetch("/api/tokenize/deployments"),
+          fetch("/api/sfc-inbox", { cache: "no-store" }),
+          fetch("/api/sponsor-inbox", { cache: "no-store" }),
+          fetch("/api/tokenize/deployments", { cache: "no-store" }),
         ]);
         const sfcData = await sfcRes.json() as { submissions?: ApprovedAsset[] };
         const sponsorData = await sponsorRes.json() as { submissions?: SponsorAsset[] };
-        const deploymentsData = await deploymentsRes.json() as Record<string, { assetName?: string; network?: string; standard?: string; status?: string }>;
+        const deploymentsData = await deploymentsRes.json() as Record<string, {
+          assetName?: string;
+          network?: string;
+          standard?: string;
+          status?: string;
+          contractHash?: string;
+        }>;
 
         const sponsorPriceMap = new Map(
           (sponsorData.submissions ?? []).map((entry) => [entry.assetName, Number(entry.unitPrice ?? "0")])
@@ -135,11 +142,13 @@ export default function SubscribePage() {
           ? Array.from(uniqueMap.values())
           : [{ name: DEFAULT_ASSET_NAME, unitPrice: 1000 }];
 
-        // Prefer the latest Casper deployed asset by default to avoid subscription/deployment mismatch.
+        // Prefer the latest fully deployed Casper asset by default to avoid selecting a
+        // submitted record that has no finalized contract hash yet.
         const casperDeployments = Object.values(deploymentsData ?? {}).filter((deployment) =>
           (deployment.network ?? "").toLowerCase().includes("casper")
           && (deployment.standard ?? "").toLowerCase().includes("casper")
-          && (deployment.status ?? "") !== "Failed"
+          && (deployment.status ?? "") === "Deployed"
+          && !!deployment.contractHash
           && !!deployment.assetName?.trim()
         );
         const preferredAssetName = casperDeployments.length > 0
@@ -222,6 +231,7 @@ export default function SubscribePage() {
         setPaymentTxHash(data.paymentTxHash ?? pmtTxHash ?? paymentTxHash ?? null);
         setPaymentStatus(data.paymentStatus ?? "Pending");
         setPaymentNotice(data.message ?? "CSPR payment submitted; waiting for Casper finality before RWA token credit.");
+        if (data.contractHash) setContractHash(data.contractHash);
         setOnChain(false);
         setMintTxHash(null);
         return;
@@ -233,6 +243,7 @@ export default function SubscribePage() {
       }
       setTxHash(data.txHash ?? null);
       setMintTxHash(data.mintTxHash ?? data.txHash ?? null);
+      setContractHash(data.contractHash ?? null);
       setPaymentStatus(data.paymentStatus ?? "Confirmed");
       setPaymentNotice(data.message ?? null);
       setOnChain(!!data.onChain);
@@ -751,19 +762,48 @@ export default function SubscribePage() {
                 ))}
               </div>
               {paymentTxHash && (
-                <div className={`rounded px-3 py-2 text-xs flex items-center gap-2 ${paymentFinal ? "text-emerald-700" : "text-amber-700"}`}
+                <div className={`rounded px-3 py-2.5 text-xs flex flex-col gap-1.5 ${paymentFinal ? "text-emerald-700" : "text-amber-700"}`}
                   style={paymentFinal
                     ? { background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a" }
                     : { background: "rgba(254,243,199,0.8)", border: "1px solid rgba(217,119,6,0.3)" }}>
-                  <span>{paymentFinal ? "✓" : "..."}</span>
-                  <span>{paymentStatusText}: <a href={`https://testnet.cspr.live/deploy/${paymentTxHash}`} target="_blank" rel="noopener noreferrer" className="underline font-mono">{paymentTxHash.slice(0, 20)}…</a></span>
+                  <div className="flex items-center gap-2">
+                    <span>{paymentFinal ? "✓" : "..."}</span>
+                    <span className="font-medium">{paymentStatusText}</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[10px] break-all">
+                    <span className="shrink-0 text-slate-500">Payment Tx:</span>
+                    <a href={`https://testnet.cspr.live/deploy/${paymentTxHash}`} target="_blank" rel="noopener noreferrer"
+                      className="underline hover:opacity-75 break-all">{paymentTxHash}</a>
+                  </div>
+                </div>
+              )}
+              {contractHash && (
+                <div className="rounded px-3 py-2.5 text-xs flex flex-col gap-1.5"
+                  style={{ background: "rgba(219,234,254,0.5)", border: "1px solid rgba(29,78,216,0.25)" }}>
+                  <div className="flex items-center gap-2 font-medium text-blue-700">
+                    <span>&#9632;</span>
+                    <span>TokenCoupon Contract</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[10px] break-all">
+                    <span className="shrink-0 text-slate-500">Hash:</span>
+                    <a href={`https://testnet.cspr.live/contract/${contractHash.replace(/^contract-/, "")}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="underline text-blue-600 hover:opacity-75 break-all">{contractHash}</a>
+                  </div>
                 </div>
               )}
               {mintTxHash && (
-                <div className="rounded px-3 py-2 text-xs text-emerald-700 flex items-center gap-2"
+                <div className="rounded px-3 py-2.5 text-xs flex flex-col gap-1.5 text-emerald-700"
                   style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a" }}>
-                  <span>&#10003;</span>
-                  <span>RWA token credit: <a href={`https://testnet.cspr.live/deploy/${mintTxHash}`} target="_blank" rel="noopener noreferrer" className="underline font-mono">{mintTxHash.slice(0, 20)}…</a></span>
+                  <div className="flex items-center gap-2">
+                    <span>&#10003;</span>
+                    <span className="font-medium">RWA token credit confirmed</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[10px] break-all">
+                    <span className="shrink-0 text-slate-500">Mint Tx:</span>
+                    <a href={`https://testnet.cspr.live/deploy/${mintTxHash}`} target="_blank" rel="noopener noreferrer"
+                      className="underline hover:opacity-75 break-all">{mintTxHash}</a>
+                  </div>
                 </div>
               )}
               {paymentNotice && !submitted && (
@@ -858,10 +898,10 @@ export default function SubscribePage() {
               ["Wire Transfer",     "Send " + displayAmt(totalDue) + " to HSBC escrow with reference " + refNum],
               ["Funds Reconciled",  "Nexus Capital matches your incoming payment to the reference within 1 business day"],
               ["CSPR Payment",      paymentTxHash
-                ? `Native transfer TxHash: ${paymentTxHash.slice(0, 18)}…`
+                ? `${paymentTxHash}`
                 : paymentMethod === "swift" ? "Wire transfer pending" : "Payment pending"],
               ["Token Issuance",    onChain
-                ? `TokenCoupon credit TxHash: ${mintTxHash?.slice(0, 18) ?? txHash?.slice(0, 18)}…`
+                ? `Mint Tx: ${mintTxHash ?? txHash ?? ""}`
                 : "NexusRWA's compliance system verifies settlement conditions, then issues tokens to your wallet"],
               ["Token Delivery",    `${assetCode} tokens delivered to your whitelisted wallet on ${SETTLEMENT} (2 business days after confirmed payment)`],
               ["First Coupon",      "USD " + semiCoupon.toFixed(2) + " per semi-annual coupon from 15 Jan 2027"],
@@ -875,6 +915,44 @@ export default function SubscribePage() {
               </div>
             ))}
           </div>
+
+          {contractHash && (
+            <div className="rounded p-4 text-left text-xs space-y-2"
+              style={{ background: "rgba(219,234,254,0.5)", border: "1px solid rgba(29,78,216,0.25)" }}>
+              <div className="text-[10px] text-blue-700 uppercase tracking-wide font-medium mb-2">On-chain Contract Details</div>
+              <div className="flex gap-3 items-start">
+                <span className="text-blue-500 shrink-0">&#9632;</span>
+                <div>
+                  <span className="text-slate-700 font-medium">Contract Hash: </span>
+                  <a href={`https://testnet.cspr.live/contract/${contractHash.replace(/^contract-/, "")}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="font-mono text-blue-600 underline break-all hover:opacity-75">{contractHash}</a>
+                </div>
+              </div>
+              {(mintTxHash ?? txHash) && (
+                <div className="flex gap-3 items-start">
+                  <span className="text-emerald-500 shrink-0">&#10003;</span>
+                  <div>
+                    <span className="text-slate-700 font-medium">Mint Tx: </span>
+                    <a href={`https://testnet.cspr.live/deploy/${mintTxHash ?? txHash}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="font-mono text-emerald-600 underline break-all hover:opacity-75">{mintTxHash ?? txHash}</a>
+                  </div>
+                </div>
+              )}
+              {paymentTxHash && (
+                <div className="flex gap-3 items-start">
+                  <span className="text-amber-500 shrink-0">&#8594;</span>
+                  <div>
+                    <span className="text-slate-700 font-medium">Payment Tx: </span>
+                    <a href={`https://testnet.cspr.live/deploy/${paymentTxHash}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="font-mono text-amber-600 underline break-all hover:opacity-75">{paymentTxHash}</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 justify-center pt-2">
             <button

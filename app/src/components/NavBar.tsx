@@ -293,27 +293,7 @@ export default function NavBar() {
             }}
           </ConnectButton.Custom>
 
-          {/* chain info */}
-          <div className="hidden md:flex items-center gap-2 text-[11px]">
-            <span
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md"
-              style={{ background: "rgba(22,163,74,0.08)", border: "1px solid rgba(22,163,74,0.18)", color: "#16a34a" }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 animate-pulse-slow" />
-              {chainName}
-            </span>
-            <a
-              href={explorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition-colors text-[11px]"
-              style={{ color: "#999999" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "#333333")}
-              onMouseLeave={e => (e.currentTarget.style.color = "#999999")}
-            >
-              Explorer ↗
-            </a>
-          </div>
+          {/* chain info — hidden */}
         </div>
       </div>
     </nav>

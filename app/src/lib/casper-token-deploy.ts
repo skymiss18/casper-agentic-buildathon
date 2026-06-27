@@ -14,9 +14,12 @@ import {
   PublicKey,
   SessionBuilder,
   StoredContractByHash,
+  StoredVersionedContractByHash,
+  Timestamp,
   Transaction,
 } from "casper-js-sdk";
 import { casperExplorerDeployUrl, casperExplorerTransactionUrl, getCasperRpcClient, getCasperRpcClientForUrl, getCasperRpcUrls } from "./casper-chain";
+import { isCasperAccountHash, isCasperPublicKeyHex, normalizeCasperAccountHash } from "./casper-address";
 
 const DEFAULT_INSTALL_PAYMENT_MOTES = "200000000000"; // 200 CSPR (Odra contracts need more gas)
 const DEFAULT_TIMEOUT_MS = 240_000; // 4 min — Casper block time ~65s
@@ -60,6 +63,13 @@ const TOKEN_COUPON_INSTALL_ARG_NAMES = [
   "mint_authority",
 ] as const;
 
+const IDENTITY_REGISTRY_INSTALL_ARG_NAMES = [
+  "odra_cfg_is_upgrade",
+  "odra_cfg_is_upgradable",
+  "odra_cfg_allow_key_override",
+  "odra_cfg_package_hash_key_name",
+] as const;
+
 const HASH_REF_REGEX = /^(?:contract-|hash-)?[0-9a-fA-F]{64}$/;
 
 interface NormalizedInstallArgs {
@@ -74,6 +84,11 @@ interface NormalizedInstallArgs {
   identityRegistryHash: string;
   mintAuthorityPublicKey: string;
   packageKeyName: string;
+}
+
+function buildAssetPackageKey(prefix: "token_coupon" | "identity_registry", assetId: string) {
+  const sanitizedAssetId = assetId.replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 32) || prefix;
+  return `${prefix}_${sanitizedAssetId}`;
 }
 
 function getInstallPaymentAmountMotes(): string {
@@ -95,6 +110,13 @@ function normalizeContractRef(refName: string, value: string): string {
     throw new Error(`${refName} must be a 64-hex hash (optionally prefixed with contract- or hash-)`);
   }
   return trimmed;
+}
+
+function normalizeContractHashForStoredCall(refName: string, value: string): string {
+  const normalized = normalizeContractRef(refName, value);
+  if (!normalized) return "";
+  const rawHex = normalized.replace(/^(?:contract-|hash-)/i, "").toLowerCase();
+  return rawHex;
 }
 
 function normalizeInstallArgs(input: CasperTokenDeployInput, fallbackMintAuthorityPublicKey: string): NormalizedInstallArgs {
@@ -120,8 +142,7 @@ function normalizeInstallArgs(input: CasperTokenDeployInput, fallbackMintAuthori
   }
   PublicKey.fromHex(mintAuthorityPublicKey);
 
-  const sanitizedAssetId = assetId.replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 32) || "token";
-  const packageKeyName = `token_coupon_${sanitizedAssetId}`;
+  const packageKeyName = buildAssetPackageKey("token_coupon", assetId);
 
   return {
     assetId,
@@ -188,6 +209,44 @@ function resolveTokenWasmPath() {
   return wasmPath;
 }
 
+function resolveIdentityRegistryWasmPath() {
+  const rawPath = process.env.CASPER_IDENTITY_REGISTRY_WASM_PATH?.trim()
+    || "./contracts-casper/target/wasm32-unknown-unknown/release/identity_registry_build_contract.wasm";
+
+  const wasmPath = path.isAbsolute(rawPath)
+    ? rawPath
+    : path.resolve(process.cwd(), rawPath);
+
+  if (!wasmPath.toLowerCase().endsWith(".wasm")) {
+    throw new Error(`CASPER_IDENTITY_REGISTRY_WASM_PATH must point to a .wasm file: ${wasmPath}`);
+  }
+  if (!fs.existsSync(wasmPath)) {
+    throw new Error(`Casper identity-registry WASM file not found: ${wasmPath}`);
+  }
+
+  return wasmPath;
+}
+
+function buildIdentityRegistryInstallCallArgs(assetId: string): Args {
+  const argSpecs = [
+    { name: "odra_cfg_is_upgrade", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_allow_key_override", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_package_hash_key_name", value: CLValue.newCLString(buildAssetPackageKey("identity_registry", assetId)) },
+  ] as const;
+
+  const providedNames = argSpecs.map((arg) => arg.name);
+  const missingNames = IDENTITY_REGISTRY_INSTALL_ARG_NAMES.filter((name) => !providedNames.includes(name));
+  const extraNames = providedNames.filter((name) => !IDENTITY_REGISTRY_INSTALL_ARG_NAMES.includes(name as typeof IDENTITY_REGISTRY_INSTALL_ARG_NAMES[number]));
+  if (missingNames.length > 0 || extraNames.length > 0) {
+    throw new Error(
+      `IdentityRegistry install arg schema mismatch. missing=[${missingNames.join(", ")}], extra=[${extraNames.join(", ")}]`
+    );
+  }
+
+  return Args.fromNamedArgs(argSpecs.map((arg) => new NamedArg(arg.name, arg.value)));
+}
+
 function getPrivateKey() {
   const privateKeyHex = process.env.CASPER_ORACLE_KEY?.trim();
   if (!privateKeyHex) {
@@ -224,6 +283,29 @@ function motesToSafeNumber(motes: string): number {
 
 function publicKeyHexToAccountKey(publicKeyHex: string): Key {
   return Key.newKey(PublicKey.fromHex(publicKeyHex).accountHash().toPrefixedString());
+}
+
+function casperAddressLikeToKey(value: string): Key {
+  const trimmed = value.trim();
+  if (isCasperPublicKeyHex(trimmed)) {
+    return publicKeyHexToAccountKey(trimmed);
+  }
+  if (isCasperAccountHash(trimmed)) {
+    return Key.newKey(normalizeCasperAccountHash(trimmed));
+  }
+  throw new Error("Investor wallet must be a Casper public key or account-hash");
+}
+
+function jurisdictionToCodeBytes(jurisdiction: string): Uint8Array {
+  const normalized = jurisdiction.trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+  if (!normalized) {
+    throw new Error("jurisdiction is required");
+  }
+  const bytes = new Uint8Array(3);
+  bytes[0] = normalized.charCodeAt(0);
+  bytes[1] = normalized.length > 1 ? normalized.charCodeAt(1) : 0;
+  bytes[2] = 0;
+  return bytes;
 }
 
 function signatureHexToBytes(signatureHex: string, signerPublicKeyHex: string): Uint8Array {
@@ -292,7 +374,7 @@ function findFailureMessage(value: unknown): string | undefined {
 
 function getExecutionResult(waitResult: unknown): unknown {
   const result = waitResult as Record<string, unknown> | undefined;
-  return (
+  const raw = (
     result?.executionInfo && typeof result.executionInfo === "object"
       ? (result.executionInfo as Record<string, unknown>).executionResult
       : undefined
@@ -313,6 +395,11 @@ function getExecutionResult(waitResult: unknown): unknown {
       ? (result?.execution_results as Array<Record<string, unknown>>)[0]?.result
       : undefined
   );
+  // Unwrap Casper 2.0 TransactionV1 Version2 wrapper so downstream helpers see transfers/initiator directly
+  if (raw && typeof raw === "object" && "Version2" in (raw as Record<string, unknown>)) {
+    return (raw as Record<string, unknown>).Version2;
+  }
+  return raw;
 }
 
 async function probeDeployExecutionFailure(deployHash: string, timeoutMs: number): Promise<string | undefined> {
@@ -425,6 +512,8 @@ export async function deployCasperTokenCoupon(input: CasperTokenDeployInput): Pr
   const header = DeployHeader.default();
   header.chainName = chainName;
   header.account = privateKey.publicKey;
+  // Back-date by 30 s to compensate for local clock being ahead of node clock
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
 
   const deploy = Deploy.makeDeploy(header, payment, session);
   deploy.sign(privateKey);
@@ -522,6 +611,21 @@ export interface PrepareDeployResult {
   paymentMotes: string;
 }
 
+export interface PrepareCasperIdentityRegistryDeployInput {
+  signerPublicKey: string;
+  assetId: string;
+}
+
+export interface PrepareCasperKycWhitelistDeployInput {
+  signerPublicKey: string;
+  investorWalletAddress: string;
+  jurisdiction: string;
+  kycExpiry?: number;
+  isVerified?: boolean;
+  amlClear?: boolean;
+  identityRegistryHash?: string;
+}
+
 /** Build an unsigned Casper transaction using the wallet's public key as the account.
  *  Returns plain JSON so the frontend can pass it to CasperWalletProvider.sign(). */
 export function prepareCasperTokenDeploy(input: PrepareDeployInput): PrepareDeployResult {
@@ -540,11 +644,111 @@ export function prepareCasperTokenDeploy(input: PrepareDeployInput): PrepareDepl
   const header = DeployHeader.default();
   header.chainName = chainName;
   header.account = PublicKey.fromHex(input.signerPublicKey);
+  // Back-date by 30 s to compensate for local clock being ahead of node clock
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
   const deploy = Deploy.makeDeploy(header, payment, session);
   const deployHash = hashToHex((deploy as unknown as { hash?: unknown }).hash);
   const deployJson = Deploy.toJSON(deploy) as Record<string, unknown>;
 
   return { deployJson, deployHash, signerPublicKey: input.signerPublicKey, paymentMotes: paymentAmount };
+}
+
+export function prepareCasperIdentityRegistryDeploy(input: PrepareCasperIdentityRegistryDeployInput): PrepareDeployResult {
+  const wasmPath = resolveIdentityRegistryWasmPath();
+  const chainName = process.env.CASPER_CHAIN_NAME ?? DEFAULT_CHAIN_NAME;
+  const paymentAmount = process.env.CASPER_IDENTITY_REGISTRY_INSTALL_PAYMENT ?? DEFAULT_INSTALL_PAYMENT_MOTES;
+  const signerPublicKey = input.signerPublicKey.trim();
+  const assetId = (input.assetId ?? "").trim();
+
+  if (!signerPublicKey) {
+    throw new Error("signerPublicKey is required");
+  }
+  if (!assetId) {
+    throw new Error("assetId is required");
+  }
+
+  const wasmBytes = fs.readFileSync(wasmPath);
+  const callArgs = buildIdentityRegistryInstallCallArgs(assetId);
+
+  const session = ExecutableDeployItem.newModuleBytes(wasmBytes, callArgs);
+  const payment = ExecutableDeployItem.standardPayment(paymentAmount);
+  const header = DeployHeader.default();
+  header.chainName = chainName;
+  header.account = PublicKey.fromHex(signerPublicKey);
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
+
+  const deploy = Deploy.makeDeploy(header, payment, session);
+  const deployHash = hashToHex((deploy as unknown as { hash?: unknown }).hash);
+  const deployJson = Deploy.toJSON(deploy) as Record<string, unknown>;
+
+  return { deployJson, deployHash, signerPublicKey, paymentMotes: paymentAmount };
+}
+
+export function prepareCasperKycWhitelistDeploy(input: PrepareCasperKycWhitelistDeployInput): PrepareDeployResult {
+  const contractHashStr = input.identityRegistryHash?.trim() || process.env.CASPER_IDENTITY_REGISTRY_HASH?.trim();
+  const normalizedIdentityRegistryRef = contractHashStr
+    ? normalizeContractRef("identityRegistryHash", contractHashStr)
+    : "";
+  const normalizedIdentityRegistryRaw = normalizedIdentityRegistryRef
+    ? normalizedIdentityRegistryRef.replace(/^(?:contract-|hash-)/i, "").toLowerCase()
+    : "";
+  const useVersionedPackageCall = normalizedIdentityRegistryRef.toLowerCase().startsWith("hash-");
+  const chainName = process.env.CASPER_CHAIN_NAME ?? DEFAULT_CHAIN_NAME;
+  const paymentAmount = process.env.CASPER_KYC_PAYMENT ?? "5000000000";
+
+  if (!normalizedIdentityRegistryRaw) {
+    throw new Error(
+      "CASPER_IDENTITY_REGISTRY_HASH env var not set. Deploy the identity-registry contract to Casper Testnet, extract its contract-<hash>, and set CASPER_IDENTITY_REGISTRY_HASH in app/.env.local."
+    );
+  }
+  if (!input.signerPublicKey?.trim()) {
+    throw new Error("signerPublicKey is required");
+  }
+
+  const signerPublicKey = input.signerPublicKey.trim();
+  PublicKey.fromHex(signerPublicKey);
+
+  const investorKey = casperAddressLikeToKey(input.investorWalletAddress);
+  const jurisdictionBytes = jurisdictionToCodeBytes(input.jurisdiction);
+  const kycExpiry = input.kycExpiry ?? Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+  if (!Number.isFinite(kycExpiry) || kycExpiry <= 0) {
+    throw new Error("kycExpiry must be a positive unix timestamp");
+  }
+
+  const callArgs = Args.fromNamedArgs([
+    new NamedArg("investor", CLValue.newCLKey(investorKey)),
+    new NamedArg("is_verified", CLValue.newCLValueBool(input.isVerified ?? true)),
+    new NamedArg("aml_clear", CLValue.newCLValueBool(input.amlClear ?? true)),
+    new NamedArg("jurisdiction", CLValue.newCLByteArray(jurisdictionBytes)),
+    new NamedArg("kyc_expiry", CLValue.newCLUint64(String(Math.floor(kycExpiry)))),
+  ]);
+
+  const session = new ExecutableDeployItem();
+  if (useVersionedPackageCall) {
+    session.storedVersionedContractByHash = new StoredVersionedContractByHash(
+      ContractHash.fromJSON(normalizedIdentityRegistryRaw),
+      "upsert_investor",
+      callArgs,
+    );
+  } else {
+    session.storedContractByHash = new StoredContractByHash(
+      ContractHash.fromJSON(normalizedIdentityRegistryRaw),
+      "upsert_investor",
+      callArgs,
+    );
+  }
+
+  const payment = ExecutableDeployItem.standardPayment(paymentAmount);
+  const header = DeployHeader.default();
+  header.chainName = chainName;
+  header.account = PublicKey.fromHex(signerPublicKey);
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
+
+  const deploy = Deploy.makeDeploy(header, payment, session);
+  const deployHash = hashToHex((deploy as unknown as { hash?: unknown }).hash);
+  const deployJson = Deploy.toJSON(deploy) as Record<string, unknown>;
+
+  return { deployJson, deployHash, signerPublicKey, paymentMotes: paymentAmount };
 }
 
 export interface BroadcastDeployInput {
@@ -569,6 +773,7 @@ export interface CasperTokenMintResult {
 
 export async function mintCasperTokenCoupon(input: CasperTokenMintInput): Promise<CasperTokenMintResult> {
   const privateKey = getPrivateKey();
+  const contractHashJson = normalizeContractHashForStoredCall("contractHash", input.contractHash);
   const chainName = process.env.CASPER_CHAIN_NAME ?? DEFAULT_CHAIN_NAME;
   const paymentAmount = process.env.CASPER_TOKEN_MINT_PAYMENT ?? "5000000000";
   const timeoutMs = Number(process.env.CASPER_DEPLOY_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
@@ -589,7 +794,7 @@ export async function mintCasperTokenCoupon(input: CasperTokenMintInput): Promis
 
   const session = new ExecutableDeployItem();
   session.storedContractByHash = new StoredContractByHash(
-    ContractHash.fromJSON(input.contractHash),
+    ContractHash.fromJSON(contractHashJson),
     "subscribe",
     callArgs,
   );
@@ -598,6 +803,8 @@ export async function mintCasperTokenCoupon(input: CasperTokenMintInput): Promis
   const header = DeployHeader.default();
   header.chainName = chainName;
   header.account = privateKey.publicKey;
+  // Back-date by 30 s to compensate for local clock being ahead of node clock
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
 
   const deploy = Deploy.makeDeploy(header, payment, session);
   deploy.sign(privateKey);
@@ -654,7 +861,6 @@ export async function mintCasperTokenCoupon(input: CasperTokenMintInput): Promis
 export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promise<CasperTokenDeployResult> {
   const timeoutMs = Number(process.env.CASPER_DEPLOY_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
   const waitForConfirmation = process.env.CASPER_WAIT_FOR_CONFIRMATION === "true";
-  const postSubmitProbeMs = Number(process.env.CASPER_POST_SUBMIT_PROBE_MS ?? "25000");
   const signerPublicKey = PublicKey.fromHex(input.signerPublicKey);
 
   const isRetryableError = (err: unknown) =>
@@ -744,10 +950,27 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
       const finalHash = rpcResult.result?.deploy_hash ?? deployHash;
       console.log(`[broadcast] Deploy submitted via ${rpcUrl}: ${finalHash}`);
 
-      if (!waitForConfirmation) {
-        const failureMessage = await probeDeployExecutionFailure(finalHash, postSubmitProbeMs);
-        if (failureMessage) {
-          throw new Error(`Casper deploy execution failed after submit: ${failureMessage}`);
+      if (waitForConfirmation) {
+        try {
+          const waitResult = await rpc.waitForDeploy(deploy, timeoutMs);
+          const executionResult = getExecutionResult(waitResult);
+          const failureMessage = findFailureMessage(executionResult);
+          if (failureMessage) throw new Error(`Casper deploy execution failed: ${failureMessage}`);
+          return {
+            deployHash: finalHash,
+            contractHash: extractContractHash(waitResult),
+            explorerUrl: casperExplorerDeployUrl(finalHash),
+            status: "Deployed",
+          };
+        } catch (waitErr) {
+          const msg = waitErr instanceof Error ? waitErr.message : "Timed out";
+          if (!/timeout|timed out|not found/i.test(msg)) throw waitErr;
+          return {
+            deployHash: finalHash,
+            explorerUrl: casperExplorerDeployUrl(finalHash),
+            status: "Submitted",
+            pendingReason: msg,
+          };
         }
       }
 
@@ -948,7 +1171,7 @@ function normalizeAccountHash(value: unknown, depth = 0): string | undefined {
   if (jsonish !== value) return normalizeAccountHash(jsonish, depth + 1);
   if (!isRecord(jsonish)) return undefined;
 
-  for (const key of ["accountHash", "account_hash", "publicKey", "public_key", "parsed", "from", "to", "target"]) {
+  for (const key of ["AccountHash", "accountHash", "account_hash", "PublicKey", "publicKey", "public_key", "parsed", "from", "to", "target"]) {
     if (key in jsonish) {
       const normalized = normalizeAccountHash(jsonish[key], depth + 1);
       if (normalized) return normalized;
@@ -979,7 +1202,11 @@ function collectTransferAmountCandidates(executionResult: unknown, sources: unkn
   }
 
   if (isRecord(executionResult) && Array.isArray(executionResult.transfers)) {
-    for (const transfer of executionResult.transfers as Array<Record<string, unknown>>) {
+    for (const rawTransfer of executionResult.transfers as Array<Record<string, unknown>>) {
+      // Unwrap Casper 2.0 Version2 transfer wrapper: { Version2: { amount, from, to, ... } }
+      const transfer = (rawTransfer.Version2 && isRecord(rawTransfer.Version2))
+        ? rawTransfer.Version2 as Record<string, unknown>
+        : rawTransfer;
       const parsed = parseBigIntCandidate(transfer.amount);
       if (parsed !== undefined) candidates.push(parsed);
     }
@@ -1000,7 +1227,10 @@ function collectTransferIds(executionResult: unknown, sources: unknown[]) {
   }
 
   if (isRecord(executionResult) && Array.isArray(executionResult.transfers)) {
-    for (const transfer of executionResult.transfers as Array<Record<string, unknown>>) {
+    for (const rawTransfer of executionResult.transfers as Array<Record<string, unknown>>) {
+      const transfer = (rawTransfer.Version2 && isRecord(rawTransfer.Version2))
+        ? rawTransfer.Version2 as Record<string, unknown>
+        : rawTransfer;
       const parsed = parseNumberCandidate(transfer.id);
       if (parsed !== undefined) ids.push(parsed);
     }
@@ -1018,7 +1248,10 @@ function collectAccountHashes(executionResult: unknown, sources: unknown[], keys
   }
 
   if (isRecord(executionResult) && Array.isArray(executionResult.transfers)) {
-    for (const transfer of executionResult.transfers as Array<Record<string, unknown>>) {
+    for (const rawTransfer of executionResult.transfers as Array<Record<string, unknown>>) {
+      const transfer = (rawTransfer.Version2 && isRecord(rawTransfer.Version2))
+        ? rawTransfer.Version2 as Record<string, unknown>
+        : rawTransfer;
       for (const key of keys) {
         candidates.push(normalizeAccountHash(transfer[key]));
       }
@@ -1080,13 +1313,35 @@ export async function verifyCasperNativeTransfer(input: CasperNativeTransferVeri
       result = await rpc.getTransactionByDeployHash(transactionHash);
     } catch (fallbackError) {
       const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "Deploy hash lookup failed";
-      const lookupMessage = `${lastError} ${fallbackMessage}`;
-      const isRetryableLookup = /not found|no such|does not exist|missing|network error|fetch|http request|timeout|timed out|ENOTFOUND|ECONNRESET|EAI_AGAIN|413|payload too large/i.test(lookupMessage);
-      return {
-        ok: false,
-        status: isRetryableLookup ? "Pending" : "Failed",
-        reason: `Casper payment transaction is not finalized or RPC lookup is unavailable yet: ${fallbackMessage}`,
-      };
+      // Final fallback: direct RPC call using { Version1: hash } format (Casper 2.0 TransactionV1)
+      try {
+        const rpcUrls = getCasperRpcUrls();
+        for (const rpcUrl of rpcUrls) {
+          const resp = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1,
+              method: "info_get_transaction",
+              params: { transaction_hash: { Version1: transactionHash } },
+            }),
+            signal: AbortSignal.timeout(8_000),
+          });
+          const payload = await resp.json() as { result?: unknown; error?: { message?: string; data?: unknown } };
+          if (payload.error) continue;
+          if (payload.result) { result = payload.result; break; }
+        }
+      } catch { /* ignore — fall through to Pending */ }
+
+      if (!result) {
+        const lookupMessage = `${lastError} ${fallbackMessage}`;
+        const isRetryableLookup = /not found|no such|does not exist|missing|network error|fetch|http request|timeout|timed out|ENOTFOUND|ECONNRESET|EAI_AGAIN|413|payload too large/i.test(lookupMessage);
+        return {
+          ok: false,
+          status: isRetryableLookup ? "Pending" : "Failed",
+          reason: `Casper payment transaction is not finalized or RPC lookup is unavailable yet: ${fallbackMessage}`,
+        };
+      }
     }
   }
 

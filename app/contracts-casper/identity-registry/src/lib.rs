@@ -4,6 +4,8 @@
 // The compliance officer upserts investor records; the token contract checks
 // is_eligible() before allowing minting / transfers.
 
+#![cfg_attr(target_arch = "wasm32", no_std)]
+
 use odra::prelude::*;
 
 // ── Custom types ──────────────────────────────────────────────────────────────

@@ -1,22 +1,22 @@
 [
   {
-    "id": "ISS-DYN-1781832976291",
+    "id": "ISS-DYN-1782469236143",
     "status": "Approved",
-    "submittedAt": "2026-06-19T01:36:16.291Z",
-    "asset": "NIBT",
+    "submittedAt": "2026-06-26T10:20:36.143Z",
+    "asset": "NIBT2",
     "type": "Bond",
     "issuer": "Nexus Capital Markets Corporation Limited",
-    "submitted": "2026-06-19",
+    "submitted": "2026-06-26",
     "complianceScore": 100,
-    "auditHash": "0x5c3bf96836c542df2866a0c5e5bb93691c15c3c6513643d68e2cc4537c33430b",
-    "totalIssuance": "10000",
+    "auditHash": "0xf7a3d16ee9ade57b90e8539ad2180a7005f229e8c20dc8980527744443340ee4",
+    "totalIssuance": "100000",
     "unitPrice": "1",
     "currency": "USD",
     "prospectusExcerpt": "PROSPECTUS — NEXUS INFRASTRUCTURE BOND TOKEN (NIBT)\nSFC-Authorised Corporate Bond | Series 2026-B\n\n════════════════════════════════════════════════════════════\nISSUER & ELIGIBILITY\n════════════════════════════════════════════════════════════\n\nIssuer: Nexus Capital Markets Corporation Limited\nSFC Licence: Type 1 (Dealing in Securities) and Type 6 (Advising on Corporate Finance)\nunder the Securities and Futures Ordinance (SFO) Cap. 571.\nThe issuer is a licensed corporation authorised to deal in tokenised debt securities\npursuant to SFO s.103 and the SFC Circular on Tokenisation of SFC-authorised\nInvestment Products (November 2023).\n\nCredit Rating: Moody's A2 / S&P A (Stable Outlook)\nIncorporated in Singapore.\n\n════════════════════════════════════════════════════════════\nBOND TERMS & STRUCTUR",
     "sponsorLicence": "Type 6 LC",
-    "approvedTx": "0x6d4fc9d39680f9eb150facd5065efeedc8424a3dd656c4f0546dd4edcd54a194",
-    "approvedAt": "2026-06-19",
+    "approvedTx": "0xb338b44b9b754f5d0dcbda4e9eb2ed42b1f5845e4017ef895312425111f84aeb",
+    "approvedAt": "2026-06-26",
     "approvedBy": "Ms. Wong Mei-Ling, SFC Senior Director",
-    "sfcRef": "SFC/RWA/2026/ISS-DYN-1781832976291"
+    "sfcRef": "SFC/RWA/2026/ISS-DYN-1782469236143"
   }
 ]

@@ -1,7 +1,8 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useWallet } from "@/lib/wallet-context";
+import { connectCasperWallet } from "@/lib/casper-wallet";
+import { isCasperAddressLike } from "@/lib/casper-address";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,6 @@ function FileUpload({
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function KYCPage() {
-  const { wallet, connect } = useWallet();
   const [step, setStep] = useState<Step>(1);
 
   const [form, setForm] = useState<FormData>({
@@ -147,6 +147,8 @@ export default function KYCPage() {
 
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [walletConnecting, setWalletConnecting] = useState(false);
   const [appId,      setAppId]        = useState<string | null>(null);
 
   // My KYC records (all, shown at top of page)
@@ -205,20 +207,6 @@ export default function KYCPage() {
     setForm((prev) => ({ ...prev, [k]: v }));
   }
 
-  useEffect(() => {
-    if (wallet) {
-      setForm((prev) => (prev.walletAddress === wallet ? prev : { ...prev, walletAddress: wallet }));
-      return;
-    }
-    // Fallback: read already-connected accounts without triggering a popup
-    const eth = (window as unknown as { ethereum?: { request: (a: { method: string }) => Promise<string[]> } }).ethereum;
-    if (eth) {
-      eth.request({ method: "eth_accounts" }).then((accounts) => {
-        if (accounts[0]) setForm((prev) => (prev.walletAddress === accounts[0] ? prev : { ...prev, walletAddress: accounts[0] }));
-      }).catch(() => {});
-    }
-  }, [wallet]);
-
   // Step validation
   function step1Valid() {
     return (
@@ -237,7 +225,20 @@ export default function KYCPage() {
   }
 
   function step3Valid() {
-    return /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) && form.consentAmlo && form.consentRetention;
+    return isCasperAddressLike(form.walletAddress) && form.consentAmlo && form.consentRetention;
+  }
+
+  async function connectInvestorCasperWallet() {
+    setWalletConnecting(true);
+    setWalletError(null);
+    try {
+      const { publicKey } = await connectCasperWallet();
+      setForm((prev) => ({ ...prev, walletAddress: publicKey }));
+    } catch (err) {
+      setWalletError(err instanceof Error ? err.message : "Failed to connect Casper Wallet");
+    } finally {
+      setWalletConnecting(false);
+    }
   }
 
   async function submit() {
@@ -681,45 +682,47 @@ export default function KYCPage() {
               Casper Network Wallet Address <span className="text-red-400">*</span>
             </label>
             <p className="text-[11px] text-slate-500 mb-1 leading-relaxed">
-              Your wallet address is like your bank account number on the blockchain ...it starts with ...x...and is 42 characters long.
-              This address will be whitelisted in NexusRWA's investor registry so only you can hold NIBT tokens.
+              Enter a Casper public key such as <span className="font-mono">01...</span> or <span className="font-mono">02...</span>, or a Casper <span className="font-mono">account-hash-...</span>.
+              This identifier will be whitelisted in NexusRWA&apos;s investor registry so only your approved Casper wallet can hold NIBT tokens.
             </p>
             <p className="text-[11px] text-slate-600 mb-2">
-              Don’t have a wallet yet?{" "}
-              <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                Get a Web3 wallet
+              Need a Casper wallet?{" "}
+              <a href="https://www.casperwallet.io/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                Install Casper Wallet
               </a>
             </p>
             <input
               className="w-full font-mono text-sm rounded px-3 py-2.5 text-slate-800 outline-none transition-colors"
               style={{
-                background: form.walletAddress && /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) ? "rgba(22,163,74,0.07)" : "#ffffff",
-                border: `1px solid ${form.walletAddress && /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) ? "#16a34a" : "rgba(0,0,0,0.10)"}`,
-                color: form.walletAddress && /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) ? "#15803d" : undefined,
+                background: form.walletAddress && isCasperAddressLike(form.walletAddress) ? "rgba(22,163,74,0.07)" : "#ffffff",
+                border: `1px solid ${form.walletAddress && isCasperAddressLike(form.walletAddress) ? "#16a34a" : "rgba(0,0,0,0.10)"}`,
+                color: form.walletAddress && isCasperAddressLike(form.walletAddress) ? "#15803d" : undefined,
               }}
-              placeholder="0x0000000000000000000000000000000000000000"
+              placeholder="01abcdef... or account-hash-abcdef..."
               value={form.walletAddress}
-              readOnly={!!(wallet || (form.walletAddress && /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress)))}
-              onChange={(e) => !wallet && setField("walletAddress", e.target.value)}
-              onFocus={(e)  => { if (!wallet) e.currentTarget.style.borderColor = "#1a56db"; }}
-              onBlur={(e)   => { if (!wallet) e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; }}
+              onChange={(e) => {
+                setWalletError(null);
+                setField("walletAddress", e.target.value);
+              }}
+              onFocus={(e)  => { e.currentTarget.style.borderColor = "#1a56db"; }}
+              onBlur={(e)   => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"; }}
             />
-            {form.walletAddress && /^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) && (
-              <p className="text-[10px] text-emerald-600 mt-0.5">Auto-filled from connected wallet</p>
+            {form.walletAddress && isCasperAddressLike(form.walletAddress) && (
+              <p className="text-[10px] text-emerald-600 mt-0.5">Valid Casper wallet identifier</p>
             )}
-            {form.walletAddress && !/^0x[0-9a-fA-F]{40}$/.test(form.walletAddress) && (
-              <p className="text-[11px] text-red-400 mt-1">Invalid address ...must be 42 characters starting with 0x</p>
+            {form.walletAddress && !isCasperAddressLike(form.walletAddress) && (
+              <p className="text-[11px] text-red-400 mt-1">Invalid Casper identifier. Use a public key starting with 01/02, or an account-hash.</p>
             )}
-            {!form.walletAddress && (
-              <button
-                type="button"
-                onClick={() => void connect()}
-                className="mt-2 text-[11px] px-2.5 py-1 rounded transition-colors hover:text-blue-300"
-                style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", color: "#1a56db" }}
-              >
-                Connect wallet to auto-fill
-              </button>
-            )}
+            {walletError && <p className="text-[11px] text-red-500 mt-1">{walletError}</p>}
+            <button
+              type="button"
+              onClick={() => void connectInvestorCasperWallet()}
+              disabled={walletConnecting}
+              className="mt-2 text-[11px] px-2.5 py-1 rounded transition-colors hover:text-blue-300 disabled:opacity-50"
+              style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", color: "#1a56db" }}
+            >
+              {walletConnecting ? "Connecting Casper Wallet..." : "Connect Casper Wallet to auto-fill"}
+            </button>
           </div>
 
           {/* Submission summary */}

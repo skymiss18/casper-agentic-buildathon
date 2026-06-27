@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
 import { PublicKey } from "casper-js-sdk";
@@ -12,6 +12,7 @@ import {
   tokenAddress,
 } from "@/lib/chain";
 import { makeAssetIdCasper } from "@/lib/casper-chain";
+import { readDeploymentsWithReconciliation } from "@/lib/casper-deployments";
 import { mintCasperTokenCoupon, verifyCasperNativeTransfer } from "@/lib/casper-token-deploy";
 
 // Check if wallet has an approved KYC record in local JSON store
@@ -37,6 +38,20 @@ type SponsorAssetRecord = {
   unitPrice?: string | number;
 };
 
+type SubscriptionInvestorRecord = {
+  assetId: string;
+  assetName: string;
+  deploymentId?: string;
+  contractHash?: string;
+  investorPublicKey: string;
+  tokenCount: number;
+  paymentRef: string;
+  paymentTxHash: string;
+  mintTxHash: string;
+  mintStatus?: string;
+  createdAt: string;
+};
+
 const MIN_CSPR_TRANSFER_MOTES = 2_500_000_000n;
 const MOTES_PER_CSPR = 1_000_000_000n;
 const USD_CENTS_PER_DEMO_CSPR = 100_000n; // Demo quote: 1 CSPR = USD 1,000.
@@ -53,13 +68,47 @@ function readKycApps(): KycRecord[] {
   return JSON.parse(raw) as KycRecord[];
 }
 
+function normalizeCasperAlias(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function casperWalletAliases(value: unknown): string[] {
+  if (typeof value !== "string" || !value.trim()) return [];
+
+  const aliases = new Set<string>();
+  const raw = normalizeCasperAlias(value);
+  aliases.add(raw);
+
+  const accountHashMatch = raw.match(/^account-hash-([0-9a-f]{64})$/);
+  if (accountHashMatch) {
+    aliases.add(`account-hash-${accountHashMatch[1]}`);
+  }
+
+  try {
+    const key = PublicKey.fromHex(value.trim());
+    aliases.add(normalizeCasperAlias(key.toHex()));
+    aliases.add(normalizeCasperAlias(key.accountHash().toPrefixedString()));
+  } catch {
+    // Not a valid Casper public key hex; keep the raw alias only.
+  }
+
+  return Array.from(aliases);
+}
+
 function isKycApprovedLocally(walletAddress: string): boolean {
   try {
+    const targetAliases = new Set(casperWalletAliases(walletAddress));
+    if (targetAliases.size === 0) {
+      targetAliases.add(walletAddress.toLowerCase());
+    }
+
     return readKycApps().some(
-      (a) =>
-        a.walletAddress?.toLowerCase() === walletAddress.toLowerCase() &&
-        a.status === "approved" &&
-        (a.aiScore ?? 0) >= 70
+      (a) => {
+        if (a.status !== "approved" || (a.aiScore ?? 0) < 70) return false;
+        const recordAliases = casperWalletAliases(a.walletAddress);
+        if (recordAliases.length === 0) return false;
+        return recordAliases.some((alias) => targetAliases.has(alias));
+      }
     );
   } catch { return false; }
 }
@@ -77,24 +126,40 @@ function parseCasperPublicKey(value: unknown): string | null {
   }
 }
 
-function readDeployments(): Record<string, CasperDeployment> {
-  const filePath = join(process.cwd(), "data", "deployments.json");
-  try {
-    if (!existsSync(filePath)) return {};
-    return JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, CasperDeployment>;
-  } catch {
-    return {};
-  }
-}
-
-function findCasperDeployment(assetName: string) {
+async function findCasperDeployment(assetName: string) {
   const assetId = makeAssetIdCasper(assetName);
-  const deployments = readDeployments();
-  return Object.values(deployments).find((deployment) => {
+  const deployments = await readDeploymentsWithReconciliation() as Record<string, CasperDeployment>;
+  const matches = Object.entries(deployments)
+    .filter(([, deployment]) => {
     const byAssetId = deployment.assetId === assetId;
     const byName = deployment.assetName?.trim().toLowerCase() === assetName.trim().toLowerCase();
     return byAssetId || byName;
-  });
+    })
+    .map(([deploymentId, deployment]) => ({ deploymentId, ...deployment }));
+  // Prefer fully-deployed entries with contractHash over pending/submitted ones
+  return matches.find((d) => d.contractHash && d.status === "Deployed")
+    ?? matches.find((d) => d.contractHash)
+    ?? matches[0];
+}
+
+function readInvestorRecords() {
+  return readJsonFile<SubscriptionInvestorRecord[]>("subscriptions.json", []);
+}
+
+function writeInvestorRecords(records: SubscriptionInvestorRecord[]) {
+  const filePath = join(process.cwd(), "data", "subscriptions.json");
+  writeFileSync(filePath, JSON.stringify(records, null, 2), "utf-8");
+}
+
+function upsertInvestorRecord(record: SubscriptionInvestorRecord) {
+  const all = readInvestorRecords();
+  const existingIndex = all.findIndex((item) => item.paymentRef === record.paymentRef);
+  if (existingIndex >= 0) {
+    all[existingIndex] = { ...all[existingIndex], ...record };
+  } else {
+    all.unshift(record);
+  }
+  writeInvestorRecords(all.slice(0, 2000));
 }
 
 function readJsonFile<T>(fileName: string, fallback: T): T {
@@ -191,8 +256,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "paymentTxHash is required before minting Casper RWA token credit" }, { status: 400 });
       }
 
-      const kycWalletAddress = isEvmAddress(rawWalletAddress) ? rawWalletAddress : casperPublicKey;
-      const kycApproved = isKycApprovedLocally(kycWalletAddress) || process.env.CASPER_SUBSCRIBE_SKIP_LOCAL_KYC === "true";
+      const kycCandidates = [
+        casperPublicKey,
+        parseCasperPublicKey(rawWalletAddress),
+        typeof rawWalletAddress === "string" ? rawWalletAddress.trim() : null,
+      ].filter((value): value is string => Boolean(value && value.trim()));
+
+      const kycWalletAddress = kycCandidates[0] ?? casperPublicKey;
+      const kycApproved = kycCandidates.some((candidate) => isKycApprovedLocally(candidate))
+        || process.env.CASPER_SUBSCRIBE_SKIP_LOCAL_KYC === "true";
       if (!kycApproved) {
         return NextResponse.json({
           eligible: false,
@@ -203,7 +275,7 @@ export async function POST(req: NextRequest) {
         }, { status: 422 });
       }
 
-      const deployment = findCasperDeployment(assetName);
+      const deployment = await findCasperDeployment(assetName);
       if (!deployment) {
         return NextResponse.json({
           eligible: true,
@@ -301,6 +373,20 @@ export async function POST(req: NextRequest) {
         investorPublicKey: casperPublicKey,
         amount: String(tokenCount),
         paymentRef,
+      });
+
+      upsertInvestorRecord({
+        assetId: deployment.assetId ?? makeAssetIdCasper(assetName),
+        assetName,
+        deploymentId: deployment.deploymentId,
+        contractHash: deployment.contractHash,
+        investorPublicKey: casperPublicKey,
+        tokenCount,
+        paymentRef,
+        paymentTxHash,
+        mintTxHash: mintResult.deployHash,
+        mintStatus: mintResult.status,
+        createdAt: new Date().toISOString(),
       });
 
       return NextResponse.json({

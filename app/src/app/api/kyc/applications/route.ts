@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { isCasperAddressLike } from "@/lib/casper-address";
 
 export const runtime = "nodejs";
 
@@ -29,8 +30,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    if (!body.walletAddress || !/^0x[0-9a-fA-F]{40}$/.test(body.walletAddress)) {
-      return NextResponse.json({ error: "Invalid wallet address" }, { status: 400 });
+    if (!body.walletAddress || !isCasperAddressLike(String(body.walletAddress))) {
+      return NextResponse.json(
+        { error: "Invalid Casper wallet identifier. Use a Casper public key or account-hash." },
+        { status: 400 }
+      );
     }
     if (!body.fullName?.trim()) {
       return NextResponse.json({ error: "fullName is required" }, { status: 400 });
@@ -62,6 +66,9 @@ export async function POST(req: NextRequest) {
         piEvidence: String(body.docs?.piEvidence ?? ""),
         ...(body.docs?.sofDecl ? { sofDecl: String(body.docs.sofDecl) } : {}),
       },
+      assetDeploymentId: String(body.assetDeploymentId ?? "").trim() || null,
+      assetId: String(body.assetId ?? "").trim() || null,
+      assetName: String(body.assetName ?? "").trim() || null,
       status:      "pending",
       aiScore:     null,
       aiSummary:   null,

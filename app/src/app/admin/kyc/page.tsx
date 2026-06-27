@@ -1,10 +1,8 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { useWriteContract, useSwitchChain, useAccount } from "wagmi";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { keccak256, toHex } from "viem";
-import { IDENTITY_REGISTRY_ABI } from "@/lib/chain";
+import { connectCasperWallet, signCasperDeploy } from "@/lib/casper-wallet";
+import { isCasperAddressLike } from "@/lib/casper-address";
 
 type AppStatus = "pending" | "reviewing" | "ai_scored" | "approved" | "rejected";
 
@@ -33,6 +31,30 @@ interface KYCApp {
   aiBreakdown: BreakdownItem[] | null;
   reviewNotes: string;
   txHash: string | null;
+  assetDeploymentId?: string | null;
+  assetId?: string | null;
+  assetName?: string | null;
+  network?: string | null;
+  explorerUrl?: string | null;
+  signerPublicKey?: string | null;
+  pendingReason?: string | null;
+  chainStatus?: string | null;
+}
+
+interface KycChainConfig {
+  identityRegistryConfigured: boolean;
+  chainName: string;
+  identityRegistryHash?: string | null;
+  assetDeploymentId?: string | null;
+  error?: string | null;
+}
+
+interface ApprovedAssetOption {
+  deploymentId: string;
+  assetId: string;
+  assetName: string;
+  issuer: string;
+  identityRegistryHash?: string | null;
 }
 
 const SEED_APPS: KYCApp[] = [];
@@ -86,11 +108,9 @@ export default function AdminKYCPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<AppStatus | "all">("all");
   const [loading, setLoading] = useState(true);
-
-  const { address } = useAccount();
-  const { writeContractAsync } = useWriteContract();
-  const { switchChainAsync } = useSwitchChain();
-  const { openConnectModal } = useConnectModal();
+  const [chainConfig, setChainConfig] = useState<KycChainConfig | null>(null);
+  const [chainConfigLoading, setChainConfigLoading] = useState(true);
+  const [approvedAssets, setApprovedAssets] = useState<ApprovedAssetOption[]>([]);
 
   // Load applications from API on mount
   useEffect(() => {
@@ -106,6 +126,104 @@ export default function AdminKYCPage() {
       .catch(() => { /* keep empty */ })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadApprovedAssets = async () => {
+      try {
+        const [sfcData, deployments] = await Promise.all([
+          fetch("/api/sfc-inbox", { cache: "no-store" }).then((r) => r.json()),
+          fetch("/api/tokenize/deployments", { cache: "no-store" }).then((r) => r.json()),
+        ]);
+        if (cancelled) return;
+        const submissions = (sfcData.submissions ?? []) as Array<{ id?: string; asset?: string; issuer?: string; status?: string }>;
+        const options = submissions
+          .filter((submission) => submission.id && submission.status === "Approved")
+          .map((submission) => {
+            const deployment = (deployments?.[submission.id as string] ?? {}) as { assetId?: string; assetName?: string; identityRegistry?: { contractHash?: string | null } };
+            return {
+              deploymentId: submission.id as string,
+              assetId: deployment.assetId ?? "",
+              assetName: deployment.assetName ?? submission.asset ?? submission.id ?? "",
+              issuer: submission.issuer ?? "",
+              identityRegistryHash: deployment.identityRegistry?.contractHash ?? null,
+            } satisfies ApprovedAssetOption;
+          })
+          .filter((asset) => Boolean(asset.identityRegistryHash));
+        setApprovedAssets(options);
+      } catch {
+        if (!cancelled) {
+          setApprovedAssets([]);
+        }
+      }
+    };
+
+    void loadApprovedAssets();
+    const intervalId = setInterval(() => {
+      void loadApprovedAssets();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const assetDeploymentId = selected?.assetDeploymentId?.trim();
+    setChainConfigLoading(true);
+    fetch(`/api/kyc/config${assetDeploymentId ? `?assetDeploymentId=${encodeURIComponent(assetDeploymentId)}` : ""}`)
+      .then((r) => r.json())
+      .then((data: KycChainConfig) => {
+        setChainConfig(data);
+      })
+      .catch(() => {
+        setChainConfig({
+          identityRegistryConfigured: false,
+          chainName: "casper-test",
+          assetDeploymentId: assetDeploymentId ?? null,
+          error: assetDeploymentId
+            ? "Failed to load asset-scoped Casper KYC contract configuration. Check the server environment and reload."
+            : "Select the target asset issuance before approving KYC on-chain.",
+        });
+      })
+      .finally(() => setChainConfigLoading(false));
+  }, [selected?.assetDeploymentId]);
+
+  useEffect(() => {
+    if (!selected?.assetDeploymentId) return;
+    const stillAvailable = approvedAssets.some((asset) => asset.deploymentId === selected.assetDeploymentId);
+    if (stillAvailable) return;
+
+    const patch = {
+      assetDeploymentId: null,
+      assetId: null,
+      assetName: null,
+    };
+    updateApp(selected.id, patch);
+    void persistPatch(selected.id, patch);
+  }, [approvedAssets, selected?.assetDeploymentId]);
+
+  useEffect(() => {
+    if (!selected) return;
+    if (selected.status === "approved" || selected.status === "rejected") return;
+    if (selected.assetDeploymentId?.trim()) return;
+    if (approvedAssets.length === 0) return;
+
+    const preferred = approvedAssets.find((asset) => asset.assetName === selected.assetName);
+    const fallback = approvedAssets[approvedAssets.length - 1];
+    const target = preferred ?? fallback;
+    if (!target) return;
+
+    const patch = {
+      assetDeploymentId: target.deploymentId,
+      assetId: target.assetId || null,
+      assetName: target.assetName || null,
+    };
+    updateApp(selected.id, patch);
+    void persistPatch(selected.id, patch);
+  }, [approvedAssets, selected]);
 
   // Persist a patch to the API and update local state
   async function persistPatch(id: string, patch: Partial<KYCApp>) {
@@ -187,30 +305,65 @@ export default function AdminKYCPage() {
     setApproving(true);
     setApproveError(null);
     try {
-      if (!address) {
-        openConnectModal?.();
-        return;
+      if (chainConfigLoading) {
+        throw new Error("Checking Casper KYC contract configuration. Retry in a moment.");
+      }
+      if (!chainConfig?.identityRegistryConfigured) {
+        throw new Error(
+          chainConfig?.error
+            ?? "Casper Identity Registry is not deployed for the selected asset issuance."
+        );
+      }
+      if (!isCasperAddressLike(app.walletAddress)) {
+        throw new Error("This application still contains a legacy 0x EVM wallet address. Casper whitelist approval requires a Casper public key or account-hash.");
       }
 
-      const registryAddr = process.env.NEXT_PUBLIC_IDENTITY_REGISTRY_ADDRESS as `0x${string}`;
-      if (!registryAddr || registryAddr === "0x0000000000000000000000000000000000000000") {
-        throw new Error("IdentityRegistry contract address not configured.");
-      }
+      const { publicKey } = await connectCasperWallet();
 
-      const targetChainId = process.env.NEXT_PUBLIC_CHAIN_ID === "5000" ? 5000 : 5003;
-      await switchChainAsync({ chainId: targetChainId });
-
-      const jurisdictionHash = keccak256(toHex(app.jurisdiction || "SG"));
-      const kycExpiry = BigInt(Math.floor(Date.now() / 1000) + 365 * 86400);
-
-      const txHash = await writeContractAsync({
-        address: registryAddr,
-        abi: IDENTITY_REGISTRY_ABI,
-        functionName: "upsertInvestor",
-        args: [app.walletAddress as `0x${string}`, true, true, jurisdictionHash, kycExpiry],
+      const prepRes = await fetch("/api/kyc/prepare-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          signerPublicKey: publicKey,
+          walletAddress: app.walletAddress,
+          jurisdiction: app.jurisdiction || "SG",
+          kycExpiry: Math.floor(Date.now() / 1000) + 365 * 86400,
+          assetDeploymentId: app.assetDeploymentId?.trim() || undefined,
+        }),
       });
+      const prepData = await prepRes.json();
+      if (!prepRes.ok) {
+        throw new Error(prepData.error ?? "Failed to prepare Casper whitelist deploy");
+      }
 
-      const approvePatch = { status: "approved" as AppStatus, txHash };
+      const signature = await signCasperDeploy(prepData.deployJson, publicKey);
+
+      const broadRes = await fetch("/api/kyc/broadcast-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deployToken: prepData.deployToken,
+          signerPublicKey: publicKey,
+          signatureHex: signature.signatureHex,
+        }),
+      });
+      const broadData = await broadRes.json();
+      if (!broadRes.ok) {
+        throw new Error(broadData.error ?? "Failed to broadcast Casper whitelist deploy");
+      }
+
+      const approvePatch = {
+        status: "approved" as AppStatus,
+        assetDeploymentId: app.assetDeploymentId,
+        assetId: app.assetId ?? null,
+        assetName: app.assetName ?? null,
+        txHash: broadData.txHash as string,
+        network: broadData.network as string,
+        explorerUrl: broadData.explorerUrl as string,
+        signerPublicKey: publicKey,
+        pendingReason: (broadData.pendingReason as string | undefined) ?? null,
+        chainStatus: (broadData.status as string | undefined) ?? "Submitted",
+      };
       updateApp(app.id, approvePatch);
       await persistPatch(app.id, approvePatch);
     } catch (err) {
@@ -234,6 +387,14 @@ export default function AdminKYCPage() {
     approved: apps.filter((a) => a.status === "approved").length,
     rejected: apps.filter((a) => a.status === "rejected").length,
   };
+
+  const approvalBlockedReason = !selected
+    ? null
+    : chainConfigLoading
+      ? "Checking Casper KYC contract configuration..."
+      : !chainConfig?.identityRegistryConfigured
+        ? (chainConfig?.error ?? "Casper Identity Registry is not configured.")
+        : null;
 
   return (
     <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -326,6 +487,18 @@ export default function AdminKYCPage() {
             </p>
           </div>
 
+          {approvalBlockedReason && (
+            <div className="rounded-lg px-4 py-3 text-xs mb-5" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.20)" }}>
+              <div className="font-semibold text-red-700 uppercase tracking-wide text-[10px] mb-1">Casper KYC Contract Not Ready</div>
+              <p className="text-slate-700 leading-relaxed">
+                {approvalBlockedReason}
+              </p>
+              <p className="text-slate-500 mt-1.5 leading-relaxed">
+                Select an approved issuance that already has an asset-scoped identity-registry deployment from <code className="text-red-700">/tokenize</code> before approving KYC on-chain.
+              </p>
+            </div>
+          )}
+
           {!selected ? (
             <div className="rounded-xl flex items-center justify-center text-sm text-slate-400"
               style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)", minHeight: "480px" }}>
@@ -367,6 +540,50 @@ export default function AdminKYCPage() {
                 <div className="rounded-xl px-5 py-3" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-1.5">Wallet Address</div>
                   <code className="text-xs font-mono text-blue-600 break-all">{selected.walletAddress}</code>
+                  {!isCasperAddressLike(selected.walletAddress) && (
+                    <p className="text-[11px] text-red-600 mt-2">Legacy 0x wallet detected. Resubmit this KYC record with a Casper public key or account-hash before approval.</p>
+                  )}
+                </div>
+
+                <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Target Asset Issuance</div>
+                  <select
+                    className="w-full rounded-lg px-3 py-2.5 text-xs text-slate-700 outline-none"
+                    style={{ background: "#f8f9fa", border: "1px solid rgba(0,0,0,0.08)" }}
+                    value={selected.assetDeploymentId ?? ""}
+                    onChange={(e) => {
+                      const deploymentId = e.currentTarget.value;
+                      const asset = approvedAssets.find((item) => item.deploymentId === deploymentId);
+                      const patch = {
+                        assetDeploymentId: deploymentId || null,
+                        assetId: asset?.assetId ?? null,
+                        assetName: asset?.assetName ?? null,
+                      };
+                      updateApp(selected.id, patch);
+                      void persistPatch(selected.id, patch);
+                    }}
+                    disabled={selected.status === "approved" || selected.status === "rejected" || approvedAssets.length === 0}
+                  >
+                    <option value="">{approvedAssets.length === 0 ? "No identity-ready issuance available" : "Select approved issuance..."}</option>
+                    {approvedAssets.map((asset) => (
+                      <option key={asset.deploymentId} value={asset.deploymentId}>
+                        {asset.assetName} · {asset.deploymentId}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                    KYC whitelist approval resolves the Casper identity-registry from the selected asset issuance deployment.
+                  </p>
+                  {approvedAssets.length === 0 && (
+                    <p className="text-[11px] text-amber-700 mt-2 leading-relaxed">
+                      No approved issuance currently has an asset-scoped identity-registry deployment. Finish the identity step in /tokenize first, then return here.
+                    </p>
+                  )}
+                  {selected.assetName && (
+                    <p className="text-[11px] text-emerald-700 mt-1">
+                      Selected asset: <span className="font-semibold">{selected.assetName}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Documents */}
@@ -470,6 +687,9 @@ export default function AdminKYCPage() {
                     <span className="text-emerald-600 font-semibold text-xs shrink-0">✓ Whitelisted</span>
                     <span className="text-slate-400 text-xs">Tx:</span>
                     <code className="font-mono text-blue-500 text-xs truncate">{selected.txHash}</code>
+                    {selected.explorerUrl && (
+                      <a href={selected.explorerUrl} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 hover:underline shrink-0">Explorer</a>
+                    )}
                   </div>
                 )}
 
@@ -507,10 +727,10 @@ export default function AdminKYCPage() {
                       </button>
                       <button
                         onClick={() => void approveApp(selected)}
-                        disabled={approving || selected.aiScore === null || selected.aiScore < 70}
+                        disabled={approving || selected.aiScore === null || selected.aiScore < 70 || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
                         className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
                         style={{ background: "#16a34a" }}>
-                        {approving ? "Waiting for wallet..." : "✓ Approve & Whitelist"}
+                        {approving ? "Waiting for Casper Wallet..." : "✓ Approve & Whitelist"}
                       </button>
                       <button
                         onClick={() => void rejectApp(selected)}
@@ -524,6 +744,18 @@ export default function AdminKYCPage() {
                       <p className="text-[11px] text-amber-600 flex items-center gap-1.5">
                         <span>⚠</span>
                         AI score below 70 — approval blocked per ComplianceOracle.sol gating condition.
+                      </p>
+                    )}
+                    {!isCasperAddressLike(selected.walletAddress) && (
+                      <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
+                        <span className="shrink-0">⚠</span>
+                        <span>This record still has a non-Casper wallet identifier. Update it to a Casper public key or account-hash before whitelist approval.</span>
+                      </p>
+                    )}
+                    {approvalBlockedReason && (
+                      <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
+                        <span className="shrink-0">⚠</span>
+                        <span>{approvalBlockedReason}</span>
                       </p>
                     )}
                     {approveError && (
@@ -543,6 +775,9 @@ export default function AdminKYCPage() {
                     <p className="text-xs text-emerald-600 leading-relaxed">
                       Wallet whitelisted in <code>IdentityRegistry.sol</code> on Casper Network. Investor may now proceed to subscription.
                     </p>
+                    {selected.pendingReason && (
+                      <p className="text-[11px] text-amber-700 mt-2">Casper finality pending: {selected.pendingReason}</p>
+                    )}
                   </div>
                 )}
                 {selected.status === "rejected" && (

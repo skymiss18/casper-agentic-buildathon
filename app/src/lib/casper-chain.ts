@@ -29,6 +29,7 @@ import {
   CLValue,
   PrivateKey,
   KeyAlgorithm,
+  Timestamp,
 } from "casper-js-sdk";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -157,6 +158,8 @@ export async function submitScoreCasper(
   const header = DeployHeader.default();
   header.chainName = chainName;
   header.account = privateKey.publicKey;
+  // Back-date by 30 s to compensate for local clock being ahead of node clock
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
 
   // Build, sign, send
   const deploy = Deploy.makeDeploy(header, payment, session);

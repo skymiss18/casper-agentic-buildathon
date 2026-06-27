@@ -1,107 +1,25 @@
 [
   {
     "id": "KYC-2026-001",
-    "submittedAt": "2026-06-07T07:17:28.868Z",
-    "fullName": "joson",
-    "email": "joson@gmail.com",
-    "dateOfBirth": "1988-01-01",
-    "phone": "85288888888",
-    "occupation": "director,it company",
+    "submittedAt": "2026-06-26T09:35:41.053Z",
+    "fullName": "json",
+    "email": "json@gmail.com",
+    "dateOfBirth": "1990-01-01",
+    "phone": "88888888",
+    "occupation": "director/it company",
     "jurisdiction": "HK",
     "investorType": "individual",
     "subscriptionTokens": 200,
-    "walletAddress": "0xb1B70643589838F8febE3314ec95C56d22aef1C5",
+    "walletAddress": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
     "pepDeclaration": true,
     "docs": {
       "govId": "kyc-demo-gov-id.pdf",
       "proofAddr": "kyc-demo-proof-of-address.pdf",
       "piEvidence": "kyc-demo-pi-evidence.pdf"
     },
-    "status": "approved",
-    "aiScore": 80,
-    "aiSummary": "KYC review passed with score 80/100. All mandatory documents verified. Note: PEP declaration requires enhanced review.",
-    "reviewNotes": "",
-    "txHash": "0x92fddfe93ec5b7e51af6aa725b48bee7c43ccbb6fcbf52b2a9b7fe22d824f352",
-    "aiBreakdown": [
-      {
-        "ruleId": "KYC-01",
-        "ruleName": "Identity Verification",
-        "score": 20,
-        "maxScore": 20,
-        "details": "Government ID document submitted and format verified."
-      },
-      {
-        "ruleId": "KYC-02",
-        "ruleName": "PEP & Sanctions Screening",
-        "score": 0,
-        "maxScore": 20,
-        "details": "Applicant declared as Politically Exposed Person (PEP). Enhanced due diligence required per AMLO Cap.615 s.20."
-      },
-      {
-        "ruleId": "KYC-03",
-        "ruleName": "PI Eligibility (SFO Schedule 1)",
-        "score": 20,
-        "maxScore": 20,
-        "details": "PI eligibility evidence document submitted."
-      },
-      {
-        "ruleId": "KYC-04",
-        "ruleName": "Source of Funds Declaration",
-        "score": 20,
-        "maxScore": 20,
-        "details": "Subscription below 500 tokens — source of funds declaration not mandatory."
-      },
-      {
-        "ruleId": "KYC-05",
-        "ruleName": "Proof of Address",
-        "score": 20,
-        "maxScore": 20,
-        "details": "Valid proof of address document submitted."
-      }
-    ]
-  },
-  {
-    "id": "KYC-2026-002",
-    "submittedAt": "2026-06-07T09:46:20.332Z",
-    "fullName": "joson",
-    "email": "joson@gmail.com",
-    "dateOfBirth": "1998-01-01",
-    "phone": "88888888",
-    "occupation": "director,itcompany",
-    "jurisdiction": "HK",
-    "investorType": "individual",
-    "subscriptionTokens": 200,
-    "walletAddress": "0xb1B70643589838F8febE3314ec95C56d22aef1C5",
-    "pepDeclaration": true,
-    "docs": {
-      "govId": "kyc-demo-gov-id.pdf",
-      "proofAddr": "kyc-demo-proof-of-address.pdf",
-      "piEvidence": "kyc-demo-pi-evidence.pdf"
-    },
-    "status": "pending",
-    "aiScore": null,
-    "aiSummary": null,
-    "reviewNotes": "",
-    "txHash": null
-  },
-  {
-    "id": "KYC-2026-003",
-    "submittedAt": "2026-06-08T08:24:51.750Z",
-    "fullName": "joson",
-    "email": "joson@gmail.com",
-    "dateOfBirth": "1997-01-01",
-    "phone": "88888888",
-    "occupation": "director,it company",
-    "jurisdiction": "HK",
-    "investorType": "individual",
-    "subscriptionTokens": 200,
-    "walletAddress": "0xb1B70643589838F8febE3314ec95C56d22aef1C5",
-    "pepDeclaration": true,
-    "docs": {
-      "govId": "kyc-demo-gov-id.pdf",
-      "proofAddr": "kyc-demo-proof-of-address.pdf",
-      "piEvidence": "kyc-demo-proof-of-address.pdf"
-    },
+    "assetDeploymentId": null,
+    "assetId": null,
+    "assetName": null,
     "status": "ai_scored",
     "aiScore": 80,
     "aiSummary": "KYC review passed with score 80/100. All mandatory documents verified. Note: PEP declaration requires enhanced review.",
@@ -146,28 +64,31 @@
     ]
   },
   {
-    "id": "KYC-2026-004",
-    "submittedAt": "2026-06-08T08:39:50.739Z",
-    "fullName": "joson",
-    "email": "joson@gmail.com",
-    "dateOfBirth": "1991-01-01",
+    "id": "KYC-2026-002",
+    "submittedAt": "2026-06-26T10:23:13.843Z",
+    "fullName": "json",
+    "email": "json@gmail.com",
+    "dateOfBirth": "1990-01-01",
     "phone": "88888888",
-    "occupation": "director,it company",
+    "occupation": "director/it company",
     "jurisdiction": "HK",
     "investorType": "individual",
     "subscriptionTokens": 200,
-    "walletAddress": "0xb1B70643589838F8febE3314ec95C56d22aef1C5",
+    "walletAddress": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
     "pepDeclaration": true,
     "docs": {
       "govId": "kyc-demo-gov-id.pdf",
       "proofAddr": "kyc-demo-proof-of-address.pdf",
-      "piEvidence": "kyc-pass-pi-evidence.pdf"
+      "piEvidence": "kyc-demo-pi-evidence.pdf"
     },
+    "assetDeploymentId": null,
+    "assetId": null,
+    "assetName": null,
     "status": "approved",
     "aiScore": 80,
     "aiSummary": "KYC review passed with score 80/100. All mandatory documents verified. Note: PEP declaration requires enhanced review.",
     "reviewNotes": "",
-    "txHash": "0xe923813918944dd5da6a8cd76db28311e0bfa6af89426b95c23f54c05a2e347a",
+    "txHash": "1c6bc57f2dbbc4e235bfacdab0b77ae95cbd2604abc93fe5f16ee5fda1bd6b27",
     "aiBreakdown": [
       {
         "ruleId": "KYC-01",
@@ -204,6 +125,11 @@
         "maxScore": 20,
         "details": "Valid proof of address document submitted."
       }
-    ]
+    ],
+    "network": "Casper Testnet",
+    "explorerUrl": "https://testnet.cspr.live/deploy/1c6bc57f2dbbc4e235bfacdab0b77ae95cbd2604abc93fe5f16ee5fda1bd6b27",
+    "signerPublicKey": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
+    "pendingReason": null,
+    "chainStatus": "Submitted"
   }
 ]
