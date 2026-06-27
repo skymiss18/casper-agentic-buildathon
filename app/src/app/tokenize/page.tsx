@@ -445,7 +445,7 @@ export default function TokenizePage() {
       setPayoutInvestorsLoading(true);
       try {
         const params = new URLSearchParams();
-        if (currentDeploy.assetId) params.set("assetId", currentDeploy.assetId);
+        if (currentDeploy?.assetId) params.set("assetId", currentDeploy.assetId);
         if (selected.asset) params.set("assetName", selected.asset);
         if (selected.id) params.set("deploymentId", selected.id);
 
