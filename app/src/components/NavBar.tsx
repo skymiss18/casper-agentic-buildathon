@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { connectCasperWallet, getCasperWalletProvider } from "@/lib/casper-wallet";
 
 // Issuer — the entity that owns the underlying real-world asset
 // Responsible for: initiating tokenization + the offering memorandum (legally the issuer's document)
@@ -186,6 +186,7 @@ function RoleDropdown({
 
 export default function NavBar() {
   const pathname = usePathname();
+  const [casperPublicKey, setCasperPublicKey] = useState<string | null>(null);
 
   const issuerActive       = ISSUER_LINKS.find((l)      => pathname.startsWith(l.href))?.href ?? null;
   const investorActive     = INVESTOR_LINKS.find((l)    => pathname.startsWith(l.href))?.href ?? null;
@@ -195,6 +196,48 @@ export default function NavBar() {
 
   const chainName   = "Casper Testnet";
   const explorerUrl = "https://testnet.cspr.live/";
+
+  useEffect(() => {
+    let active = true;
+
+    async function syncWallet() {
+      try {
+        const provider = getCasperWalletProvider();
+        const connected = await provider.isConnected();
+        if (!connected || !active) return;
+        const publicKey = await provider.getActivePublicKey();
+        if (active && publicKey) setCasperPublicKey(publicKey);
+      } catch {
+        if (active) setCasperPublicKey(null);
+      }
+    }
+
+    void syncWallet();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleConnectCasper() {
+    try {
+      const { publicKey } = await connectCasperWallet();
+      setCasperPublicKey(publicKey);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to connect Casper Wallet";
+      alert(msg);
+    }
+  }
+
+  async function handleDisconnectCasper() {
+    try {
+      const provider = getCasperWalletProvider();
+      await provider.disconnectFromSite();
+    } catch {
+      // Ignore provider disconnect errors and clear local state anyway.
+    } finally {
+      setCasperPublicKey(null);
+    }
+  }
 
   return (
     <nav
@@ -259,39 +302,29 @@ export default function NavBar() {
 
         {/* Right: wallet + admin + chain */}
         <div className="flex items-center gap-3">
-          {/* Wallet connect — RainbowKit */}
-          <ConnectButton.Custom>
-            {({ account, chain, openAccountModal, openConnectModal, authenticationStatus, mounted }) => {
-              const ready = mounted && authenticationStatus !== "loading";
-              const connected = ready && account && chain;
-              return (
-                <div aria-hidden={!ready} style={!ready ? { opacity: 0, pointerEvents: "none", userSelect: "none" } : {}}>
-                  {connected ? (
-                    <button
-                      onClick={openAccountModal}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
-                      style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.15)", color: "#333333" }}
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 animate-pulse-slow" />
-                      <span className="font-mono">{account.address.slice(0, 6)}…{account.address.slice(-4)}</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={openConnectModal}
-                      className="btn-primary flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold text-white"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <rect x="2" y="7" width="20" height="14" rx="2" />
-                        <path d="M16 3H8a2 2 0 0 0-2 2v2h12V5a2 2 0 0 0-2-2z" />
-                        <circle cx="17" cy="14" r="1.5" fill="currentColor" />
-                      </svg>
-                      Connect Wallet
-                    </button>
-                  )}
-                </div>
-              );
-            }}
-          </ConnectButton.Custom>
+          {casperPublicKey ? (
+            <button
+              onClick={handleDisconnectCasper}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
+              style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.15)", color: "#333333" }}
+              title="Disconnect Casper Wallet"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 animate-pulse-slow" />
+              <span className="font-mono">{casperPublicKey.slice(0, 8)}…{casperPublicKey.slice(-6)}</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleConnectCasper}
+              className="btn-primary flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold text-white"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="2" y="7" width="20" height="14" rx="2" />
+                <path d="M16 3H8a2 2 0 0 0-2 2v2h12V5a2 2 0 0 0-2-2z" />
+                <circle cx="17" cy="14" r="1.5" fill="currentColor" />
+              </svg>
+              Connect Casper Wallet
+            </button>
+          )}
 
           {/* chain info — hidden */}
         </div>
