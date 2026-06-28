@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Runtime config (can be overridden at execution time)
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-PORT="${PORT:-3008}"
+PORT="3003"
 HOSTNAME="${HOSTNAME:-0.0.0.0}"
-MEMORY_MB="${MEMORY_MB:-2048}"
+MEMORY_MB="1024"
 RUN_BUILD="${RUN_BUILD:-1}"
 
 cd "$APP_DIR"
