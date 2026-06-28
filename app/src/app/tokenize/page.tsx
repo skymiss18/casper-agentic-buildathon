@@ -433,9 +433,10 @@ export default function TokenizePage() {
   }
 
   useEffect(() => {
-    const currentDeploy = selected ? deployMap[selected.id] : null;
+    const selectedRecord = selected;
+    const currentDeploy = selectedRecord ? deployMap[selectedRecord.id] : null;
 
-    if (!selected || !currentDeploy || !payoutOpen) {
+    if (!selectedRecord || !currentDeploy || !payoutOpen) {
       setPayoutInvestors([]);
       return;
     }
@@ -446,8 +447,8 @@ export default function TokenizePage() {
       try {
         const params = new URLSearchParams();
         if (currentDeploy?.assetId) params.set("assetId", currentDeploy.assetId);
-        if (selected.asset) params.set("assetName", selected.asset);
-        if (selected.id) params.set("deploymentId", selected.id);
+        if (selectedRecord?.asset) params.set("assetName", selectedRecord.asset);
+        if (selectedRecord?.id) params.set("deploymentId", selectedRecord.id);
 
         const res = await fetch(`/api/tokenize/coupon-payout/investors?${params.toString()}`, { cache: "no-store" });
         const data = await res.json() as { investors?: CouponPayoutInvestorOption[] };
