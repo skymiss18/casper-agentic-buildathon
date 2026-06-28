@@ -18,6 +18,8 @@ node_modules/
 out/
 dist/
 build/
+!app/src/app/api/**/build/
+!app/src/app/api/**/build/**
 
 # --- Solidity / Hardhat ---
 app/contracts/cache/
