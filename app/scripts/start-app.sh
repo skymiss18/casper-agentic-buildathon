@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Runtime config (can be overridden at execution time)
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-PORT="3002"
+PORT="3003"
 HOSTNAME="${HOSTNAME:-0.0.0.0}"
 MEMORY_MB="1024"
-APP_NAME="${APP_NAME:-harbourrwa}"
+APP_NAME="${APP_NAME:-nexusrwa}"
 
 cd "$APP_DIR"
 
