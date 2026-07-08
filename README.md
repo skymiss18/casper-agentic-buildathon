@@ -3,6 +3,52 @@
 End-to-end AI-assisted RWA issuance workflow on Casper Testnet, with compliance scoring, identity gating, and coupon lifecycle recorded through Casper smart contracts.
 
 
+## Final Round Qualification Checklist
+
+Use this section as the source-of-truth checklist for final-round review.
+
+| Requirement | Status | Evidence / Action |
+|---|---|---|
+| Public GitHub repository with clear naming | Complete | Repository is public and named `casper-agentic-buildathon` |
+| Repository description, website, and topics (`casper-blockchain`, `casper-network`, `buildathon`) | Pending metadata verification on GitHub UI | See "Repository Metadata (GitHub)" section below |
+| Comprehensive README | Complete (this file) | Architecture, setup, deployment, and reproducible verification steps |
+| Community standards (Code of Conduct, Contributing, Security Policy, Support) | Partial | Workflow exists in `.github/workflows`; community health files should be added under `.github/` |
+| CodeQL enabled | Pending verification on GitHub Security tab | See "Security and CI" section |
+| Dependabot alerts + updates enabled | Pending verification on GitHub Security tab | See "Security and CI" section |
+| High+ security alerts fixed | Pending verification on GitHub Security tab | Final submission target: 0 open High/Critical alerts |
+| Functional MVP on Casper Testnet | Complete | Deployment record and explorer transaction in `app/data/deployments.json` |
+| Intuitive workflow + demo video or DoraHacks playbook | Partial | Playbook below; replace demo placeholder with final URL |
+| Contract package hashes and sample Testnet transactions documented on BUIDL page | Partial | Contract/deploy evidence table below; fill package hash entries if redeployed |
+
+
+## Repository Metadata (GitHub)
+
+Set these repository fields in GitHub Settings so reviewers can validate quickly:
+
+- Description: `Agentic RWA issuance MVP on Casper Testnet with compliance and identity-gated token coupon lifecycle.`
+- Website: `<BUIDL_OR_PROJECT_URL>`
+- Topics (minimum): `casper-blockchain`, `casper-network`, `buildathon`
+- Suggested extra topics: `rwa`, `compliance`, `ai-agent`, `odra`, `wasm`, `nextjs`
+
+
+## GitHub Community Standards
+
+Community profile target path: `https://github.com/<ORG_OR_USER>/<REPO>/community`
+
+Recommended files under `.github/` for full health score:
+
+- `.github/CODE_OF_CONDUCT.md`
+- `.github/CONTRIBUTING.md`
+- `.github/SECURITY.md`
+- `.github/SUPPORT.md`
+- Issue templates under `.github/ISSUE_TEMPLATE/`
+- Optional: `.github/pull_request_template.md`
+
+Current repository already includes CI workflow:
+
+- `.github/workflows/build-casper-contracts.yml`
+
+
 
 ## Submission Readiness (DoraHacks)
 
@@ -11,6 +57,46 @@ End-to-end AI-assisted RWA issuance workflow on Casper Testnet, with compliance 
 | Working prototype on Casper Testnet with transaction-producing on-chain component | Complete | Deploy record in `app/data/deployments.json` and explorer link below |
 | Open-source repository with README and usage instructions | Complete | This repository + setup/run steps below |
 | Public demo video | Pending link update | Add final public URL in Demo section |
+
+## Security and CI
+
+### CI Status
+
+- Casper contract build/test workflow: `.github/workflows/build-casper-contracts.yml`
+- Builds Rust/Odra contracts and runs `cargo odra test` for key modules.
+
+### Security Configuration Checklist
+
+Enable and verify in GitHub repository settings:
+
+1. Code scanning (CodeQL default setup)
+2. Dependabot alerts
+3. Dependabot security updates
+4. Dependabot version updates (recommended)
+5. Secret scanning (if available for your plan)
+
+Submission target:
+
+- Open High/Critical alerts: **0**
+
+Suggested verification command for local dependency hygiene:
+
+```bash
+# Node ecosystem
+cd app && npm audit --audit-level=high
+
+# Rust ecosystem (install once: cargo install cargo-audit)
+cd app/contracts-casper && cargo audit
+```
+
+If any High/Critical issue appears, patch and re-run before final submission.
+
+
+## Demo and BUIDL Links
+
+- Demo video: `<PASTE_PUBLIC_DEMO_VIDEO_URL>`
+- DoraHacks / BUIDL page: `<PASTE_BUIDL_PAGE_URL>`
+- Testing playbook (if hosted separately): `<OPTIONAL_PLAYBOOK_URL>`
 
 ## What This Project Does
 
@@ -39,6 +125,29 @@ Source of truth: `app/data/deployments.json`
 | Contract hash | `contract-5433399954f15e10c02ee6064fe28ac1c7fefafd5d05b9e9728b585c30fd0fa1` |
 | Asset id | `nibt2` |
 | Standard | Casper Token/Coupon WASM |
+
+## Contract Package Hashes and Testnet Transactions
+
+Use this table directly on your BUIDL page.
+
+### A) Contract Registry (Casper Testnet)
+
+| Contract | Package Hash | Contract Hash | Deploy Hash | Explorer | Description |
+|---|---|---|---|---|---|
+| TokenCoupon | `<FILL_IF_AVAILABLE>` | `contract-5433399954f15e10c02ee6064fe28ac1c7fefafd5d05b9e9728b585c30fd0fa1` | `4c3df0d87420700ab312597e0c5d3c01081963b074d16c8dffe7074600c76556` | https://testnet.cspr.live/deploy/4c3df0d87420700ab312597e0c5d3c01081963b074d16c8dffe7074600c76556 | Core token/coupon lifecycle state |
+| ComplianceOracle | `<FILL_PACKAGE_HASH>` | `<FILL_CONTRACT_HASH>` | `<FILL_DEPLOY_HASH>` | `<FILL_EXPLORER_URL>` | On-chain compliance score anchoring |
+| IdentityRegistry | `<FILL_PACKAGE_HASH>` | `<FILL_CONTRACT_HASH>` | `<FILL_DEPLOY_HASH>` | `<FILL_EXPLORER_URL>` | Investor eligibility/KYC registry |
+
+### B) Sample Testnet Transactions
+
+| Tx Type | Deploy / Tx Hash | Explorer | Expected Outcome |
+|---|---|---|---|
+| Deploy TokenCoupon | `4c3df0d87420700ab312597e0c5d3c01081963b074d16c8dffe7074600c76556` | https://testnet.cspr.live/deploy/4c3df0d87420700ab312597e0c5d3c01081963b074d16c8dffe7074600c76556 | Token coupon contract available on Casper Testnet |
+| Subscribe flow test | `<FILL_FROM_TEST_OUTPUT>` | `<FILL_EXPLORER_URL>` | Investor subscription state updated |
+| Settlement/payment verification | `<FILL_FROM_TEST_OUTPUT>` | `<FILL_EXPLORER_URL>` | Payment/settlement checks pass |
+| Mint authorization negative test | `<FILL_FROM_TEST_OUTPUT>` | `<FILL_EXPLORER_URL>` | Unauthorized mint rejected as expected |
+
+Record these hashes from your latest final demo run and keep them synchronized with `app/data/deployments.json`.
 
 ### 2) Smart Contracts Implemented in Rust/Odra
 
@@ -179,6 +288,82 @@ From `app` directory:
 node test-deploy-server.cjs
 ```
 
+## Reviewer Playbook (No Marketing, 8-12 Minutes)
+
+This flow is intended for judges to validate functionality quickly.
+
+### Prerequisites
+
+1. Node.js 20+ and npm installed
+2. Rust toolchain available for contract build checks
+3. Testnet-funded Casper account if redeployment is needed
+4. `app/.env.local` configured
+
+### Step-by-Step Validation
+
+1. Install and run app
+
+```bash
+cd app
+npm install
+npm run dev
+```
+
+Expected: local UI opens at `http://localhost:3000` with tokenize/compliance/kyc/subscribe routes available.
+
+2. Build Casper contracts
+
+```bash
+cd app/contracts-casper/compliance-oracle && cargo odra build -b casper
+cd ../identity-registry && cargo odra build -b casper
+cd ../token-coupon && cargo odra build -b casper
+```
+
+Expected: WASM outputs generated without build errors.
+
+3. Verify deployment evidence
+
+Inspect `app/data/deployments.json` and open listed explorer URL.
+
+Expected: Casper Testnet deploy exists and status is successful.
+
+4. Run scripted behavior checks
+
+```bash
+cd <repo-root>
+node test-subscribe.mjs
+node test-payment-verification.mjs
+node test-mint-error.mjs
+```
+
+Expected:
+
+- subscribe flow executes and records expected state
+- payment verification script passes
+- unauthorized mint scenario fails as designed
+
+5. Validate API-backed route coverage
+
+Manually visit and test:
+
+- `/prospectus`
+- `/tokenize`
+- `/compliance`
+- `/regulator`
+- `/kyc`
+- `/admin/kyc`
+- `/subscribe`
+- `/portfolio`
+
+Expected: end-to-end workflow is navigable and actions produce corresponding data artifacts/API responses.
+
+### What to Put on DoraHacks/BUIDL Page
+
+1. Core contract package hash + contract hash + deploy hash
+2. 3-5 representative Testnet transactions with one-line purpose each
+3. Public demo video URL
+4. Short reproducible test steps (copy from this section)
+
 ## How This README Maps to DoraHacks Judging
 
 | Judging dimension | Where to evaluate in this repo |
@@ -227,6 +412,10 @@ app/
 ## Notes for Final Submission
 
 - Replace demo video placeholder with public URL.
+- Replace all `<FILL_...>` placeholders in Contract/Transaction tables.
+- Ensure repository metadata (description, website, topics) is set in GitHub.
+- Add/verify community health files under `.github/`.
+- Enable CodeQL + Dependabot and resolve all High/Critical alerts.
 - Keep deploy hashes in this README synchronized with `app/data/deployments.json`.
 - If new deploy is used in final demo, update both this README and explorer links together.
 

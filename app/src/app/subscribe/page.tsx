@@ -53,6 +53,25 @@ function bytesToHex(bytes: Uint8Array | number[]) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function fetchApiWithSubpathFallback(input: string, init?: RequestInit) {
+  const primary = await fetch(input, init);
+  if (primary.status !== 404 || typeof window === "undefined" || !input.startsWith("/api/")) {
+    return primary;
+  }
+
+  const firstPathSegment = window.location.pathname.split("/").filter(Boolean)[0];
+  if (!firstPathSegment) {
+    return primary;
+  }
+
+  const fallbackPath = `/${firstPathSegment}${input}`;
+  if (fallbackPath === input) {
+    return primary;
+  }
+
+  return fetch(fallbackPath, init);
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function SubscribePage() {
@@ -110,9 +129,9 @@ export default function SubscribePage() {
         setAssetsLoading(true);
         setAssetsError(null);
         const [sfcRes, sponsorRes, deploymentsRes] = await Promise.all([
-          fetch("/api/sfc-inbox", { cache: "no-store" }),
-          fetch("/api/sponsor-inbox", { cache: "no-store" }),
-          fetch("/api/tokenize/deployments", { cache: "no-store" }),
+          fetchApiWithSubpathFallback("/api/sfc-inbox", { cache: "no-store" }),
+          fetchApiWithSubpathFallback("/api/sponsor-inbox", { cache: "no-store" }),
+          fetchApiWithSubpathFallback("/api/tokenize/deployments", { cache: "no-store" }),
         ]);
         const sfcData = await sfcRes.json() as { submissions?: ApprovedAsset[] };
         const sponsorData = await sponsorRes.json() as { submissions?: SponsorAsset[] };
@@ -214,7 +233,7 @@ export default function SubscribePage() {
     setPaymentNotice(null);
     try {
       const subscriptionWallet = walletOverride ?? effectiveWalletAddress;
-      const res = await fetch("/api/subscribe", {
+      const res = await fetchApiWithSubpathFallback("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -265,7 +284,7 @@ export default function SubscribePage() {
       const { publicKey } = await connectCasperWallet();
       setCasperPublicKey(publicKey);
 
-      const buildRes = await fetch("/api/subscribe/casper-transfer/build", {
+      const buildRes = await fetchApiWithSubpathFallback("/api/subscribe/casper-transfer/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderPublicKeyHex: publicKey, amountMotes, refNum }),
@@ -285,7 +304,7 @@ export default function SubscribePage() {
         throw new Error("Casper Wallet did not return signatureHex");
       }
 
-      const submitRes = await fetch("/api/subscribe/casper-transfer/submit", {
+      const submitRes = await fetchApiWithSubpathFallback("/api/subscribe/casper-transfer/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { mantleSepoliaTestnet, mantle } from "viem/chains";
 import artifact from "@/contracts/artifacts/contracts/HarbourRWAToken.sol/HarbourRWAToken.json";
-import { useWallet } from "@/lib/wallet-context";
+import { getCasperWalletProvider } from "@/lib/casper-wallet";
 
 interface AssetInfo {
   name: string;
@@ -150,9 +150,16 @@ const ACTION_BUTTONS: Record<string, { label: string; href: string }> = {
   audit:     { label: "View Audit Report ->",   href: "/audit"    },
 };
 
+function isEvmAddress(value: string | null): value is `0x${string}` {
+  return !!value && /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
 export default function PortfolioPage() {
-  const { wallet, connecting: walletConnecting, connect } = useWallet();
+  const [wallet, setWallet] = useState<string | null>(null);
+  const [walletConnecting, setWalletConnecting] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
   const connected = !!wallet;
+  const walletIsEvm = isEvmAddress(wallet);
   const [loading,   setLoading]   = useState(false);
   const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
@@ -186,7 +193,7 @@ export default function PortfolioPage() {
   }
 
   useEffect(() => {
-    if (!wallet) {
+    if (!wallet || !walletIsEvm) {
       return;
     }
 
@@ -209,10 +216,10 @@ export default function PortfolioPage() {
     return () => {
       active = false;
     };
-  }, [wallet]);
+  }, [wallet, walletIsEvm]);
 
   const activeSummary = wallet && portfolioSummary?.walletAddress === wallet ? portfolioSummary : null;
-  const portfolioLoading = connected && !activeSummary && !portfolioError;
+  const portfolioLoading = connected && walletIsEvm && !activeSummary && !portfolioError;
   const holdings = activeSummary?.holdings ?? HIBT_PLACEHOLDER;
   const couponHistory = activeSummary?.couponHistory ?? [];
   const hibtPosition = activeSummary?.hibt ?? null;
@@ -326,12 +333,38 @@ export default function PortfolioPage() {
   }
 
   function connectDemo() {
+    if (loading || walletConnecting) {
+      return;
+    }
+
     setLoading(true);
-    connect().finally(() => setLoading(false));
+    setWalletConnecting(true);
+    setWalletError(null);
+
+    void (async () => {
+      try {
+        const provider = getCasperWalletProvider();
+        await provider.requestConnection();
+        const activePublicKey = await provider.getActivePublicKey();
+        if (!activePublicKey) {
+          throw new Error("Casper Wallet did not return an active public key");
+        }
+        setWallet(activePublicKey);
+      } catch (error) {
+        setWalletError(error instanceof Error ? error.message : "Failed to connect Casper Wallet");
+      } finally {
+        setLoading(false);
+        setWalletConnecting(false);
+      }
+    })();
   }
 
   async function handleRebalance() {
     if (!wallet || rebalancing) return;
+    if (!walletIsEvm) {
+      setRebalanceError("AI Rebalance currently requires an EVM wallet address (0x...). Connect an EVM wallet for this action.");
+      return;
+    }
     setRebalancing(true);
     setRebalanceError(null);
     try {
@@ -352,6 +385,11 @@ export default function PortfolioPage() {
 
   async function handleCouponAction(entry: CouponHistoryEntry) {
     if (!wallet || !hibtPosition) {
+      return;
+    }
+
+    if (!walletIsEvm) {
+      setCouponError("Coupon actions currently require an EVM wallet address (0x...).");
       return;
     }
 
@@ -388,7 +426,7 @@ export default function PortfolioPage() {
         }
 
         const walletClient = createWalletClient({
-          account: wallet as `0x${string}`,
+          account: wallet,
           chain,
           transport: custom(eth),
         });
@@ -431,7 +469,15 @@ export default function PortfolioPage() {
           </p>
           {connected && (
             <p className="text-[11px] text-slate-600 mt-2">
-              {portfolioLoading ? `Loading live ${assetCode} position...` : portfolioError ? portfolioError : hibtPosition?.livePosition ? `${assetCode} balance synced from HarbourRWAToken on Casper.` : `No live ${assetCode} token position detected; showing estimated schedule alongside live wallet context.`}
+              {!walletIsEvm
+                ? "Casper Wallet connected."
+                : portfolioLoading
+                  ? `Loading live ${assetCode} position...`
+                  : portfolioError
+                    ? portfolioError
+                    : hibtPosition?.livePosition
+                      ? `${assetCode} balance synced from HarbourRWAToken on Casper.`
+                      : `No live ${assetCode} token position detected; showing estimated schedule alongside live wallet context.`}
             </p>
           )}
         </div>
@@ -450,6 +496,20 @@ export default function PortfolioPage() {
           </div>
         )}
       </div>
+
+      {walletError && (
+        <div className="mb-4 text-xs text-red-700 px-3 py-2 rounded"
+          style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}>
+          {walletError}
+        </div>
+      )}
+
+      {connected && !walletIsEvm && (
+        <div className="mb-4 text-xs text-blue-700 px-3 py-2 rounded"
+          style={{ background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.18)" }}>
+          Connected via Casper Wallet. Live EVM contract reads are disabled for this address, so portfolio metrics are shown in demo mode.
+        </div>
+      )}
 
       {!connected ? (
         <div className="rounded py-20 text-center"
