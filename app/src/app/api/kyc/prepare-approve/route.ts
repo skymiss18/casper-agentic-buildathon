@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
       jurisdiction?: string;
       kycExpiry?: number;
       assetDeploymentId?: string;
+      kycApplicationId?: string;
     };
 
     if (!body.signerPublicKey?.trim()) {
@@ -66,7 +67,12 @@ export async function POST(req: NextRequest) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, `deploy-${deployToken}.json`),
-      JSON.stringify({ deployJson: result.deployJson, signerPublicKey: result.signerPublicKey }),
+      JSON.stringify({
+        deployJson: result.deployJson,
+        signerPublicKey: result.signerPublicKey,
+        action: "approve",
+        kycApplicationId: body.kycApplicationId?.trim() || "",
+      }),
     );
 
     return NextResponse.json({

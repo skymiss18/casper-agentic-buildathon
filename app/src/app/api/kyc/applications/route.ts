@@ -71,9 +71,18 @@ export async function POST(req: NextRequest) {
       assetName: String(body.assetName ?? "").trim() || null,
       status:      "pending",
       aiScore:     null,
+      aiRiskScore: null,
+      riskBand:    null,
       aiSummary:   null,
       reviewNotes: "",
       txHash:      null,
+      kycExpiry:   null,
+      credentialCommitment: null,
+      nullifierHash: null,
+      proofHash: null,
+      monitoringStatus: "pending",
+      lastScreenedAt: null,
+      agentReason: null,
     };
 
     apps.push(newApp);

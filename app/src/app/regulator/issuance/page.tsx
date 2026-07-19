@@ -613,7 +613,7 @@ export default function IssuanceReviewPage() {
             <div className="px-5 py-4 space-y-3">
               <div className="px-3 py-2 rounded text-[11px] text-amber-800"
                 style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
-                This notice will be formally recorded. The issuer's application status will change to "Changes Required" and they will be notified to revise and resubmit.
+                This notice will be formally recorded. The issuer&apos;s application status will change to &quot;Changes Required&quot; and they will be notified to revise and resubmit.
               </div>
               <textarea rows={6} value={changesText} onChange={(e) => setChangesText(e.target.value)}
                 placeholder="e.g. Section 4.2 liquidity risk disclosure is insufficient. Please elaborate on redemption restrictions and secondary market liquidity per SFC Code on REITs §10.3..."

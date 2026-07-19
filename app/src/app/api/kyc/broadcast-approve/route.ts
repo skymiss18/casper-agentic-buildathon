@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { broadcastSignedDeploy } from "@/lib/casper-token-deploy";
 import { isCasperPublicKeyHex } from "@/lib/casper-address";
+import { upsertKycApplication } from "@/lib/kyc-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -17,6 +18,8 @@ export async function POST(req: NextRequest) {
     };
 
     let deployJson: Record<string, unknown> | undefined = body.deployJson;
+    let pendingAction: "approve" | "update" | "revoke" | "unknown" = "unknown";
+    let pendingApplicationId = "";
 
     if (body.deployToken) {
       if (!/^[0-9a-f]{32}$/.test(body.deployToken)) {
@@ -26,8 +29,21 @@ export async function POST(req: NextRequest) {
       if (!fs.existsSync(filePath)) {
         return NextResponse.json({ error: "Deploy token not found or expired" }, { status: 404 });
       }
-      const stored = JSON.parse(fs.readFileSync(filePath, "utf8")) as { deployJson: Record<string, unknown>; signerPublicKey: string };
+      const stored = JSON.parse(fs.readFileSync(filePath, "utf8")) as {
+        deployJson: Record<string, unknown>;
+        signerPublicKey: string;
+        action?: string;
+        kycApplicationId?: string;
+      };
       deployJson = stored.deployJson;
+      pendingAction = stored.action === "approve"
+        ? "approve"
+        : stored.action === "update"
+          ? "update"
+          : stored.action === "revoke"
+            ? "revoke"
+            : "unknown";
+      pendingApplicationId = stored.kycApplicationId?.trim() || "";
       fs.unlinkSync(filePath);
     }
 
@@ -49,6 +65,35 @@ export async function POST(req: NextRequest) {
       signatureHex: body.signatureHex.trim(),
       signerPublicKey: body.signerPublicKey.trim(),
     });
+
+    if (pendingApplicationId) {
+      const nowIso = new Date().toISOString();
+      if (pendingAction === "revoke") {
+        upsertKycApplication(pendingApplicationId, {
+          status: "rejected",
+          monitoringStatus: "revoked",
+          txHash: result.deployHash,
+          explorerUrl: result.explorerUrl,
+          chainStatus: result.status,
+          pendingReason: result.pendingReason ?? null,
+          lastScreenedAt: nowIso,
+          agentReason: "Credential revoked on-chain by compliance action.",
+        });
+      } else {
+        upsertKycApplication(pendingApplicationId, {
+          status: "approved",
+          monitoringStatus: pendingAction === "update" ? "updated" : "approved",
+          txHash: result.deployHash,
+          explorerUrl: result.explorerUrl,
+          chainStatus: result.status,
+          pendingReason: result.pendingReason ?? null,
+          lastScreenedAt: nowIso,
+          agentReason: pendingAction === "update"
+            ? "Credential updated on-chain by compliance action."
+            : "Credential approved on-chain by compliance action.",
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,

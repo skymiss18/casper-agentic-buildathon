@@ -27,6 +27,7 @@ const INTERMEDIARY_LINKS = [
   { href: "/compliance", step: "1", label: "Compliance Check",  desc: "AI review & SFC filing on behalf of Issuer (pre-authorisation)", isTool: false },
   { href: "/audit",      step: "2", label: "Contract Audit",    desc: "Smart contract technical due diligence before deployment",        isTool: false },
   { href: "/admin/kyc",  step: "3", label: "KYC Review",       desc: "AMLO CDD — review & approve investor identity filings",           isTool: false },
+  { href: "/evidence",   step: "4", label: "Evidence",         desc: "Live proof board for deployments, KYC lifecycle, and subscriptions", isTool: false },
 ];
 
 // SFC — Securities and Futures Commission, the primary securities regulator
@@ -40,13 +41,11 @@ function RoleDropdown({
   label,
   links,
   accentColor,
-  accentBg,
   activeHref,
 }: {
   label: string;
   links: { href: string; step: string; label: string; desc: string; isTool?: boolean }[];
   accentColor: string;
-  accentBg: string;
   activeHref: string | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -194,9 +193,6 @@ export default function NavBar() {
   const intermediaryActive = [...INTERMEDIARY_LINKS].sort((a, b) => b.href.length - a.href.length).find((l) => pathname.startsWith(l.href))?.href ?? null;
   const regulatorActive    = [...REGULATOR_LINKS].sort((a, b) => b.href.length - a.href.length).find((l) => pathname.startsWith(l.href))?.href ?? null;
 
-  const chainName   = "Casper Testnet";
-  const explorerUrl = "https://testnet.cspr.live/";
-
   useEffect(() => {
     let active = true;
 
@@ -274,28 +270,24 @@ export default function NavBar() {
             label="Issue"
             links={ISSUER_LINKS}
             accentColor="#3b82f6"
-            accentBg="rgba(59,130,246,0.10)"
             activeHref={issuerActive}
           />
           <RoleDropdown
             label="Intermediate"
             links={INTERMEDIARY_LINKS}
             accentColor="#f59e0b"
-            accentBg="rgba(245,158,11,0.10)"
             activeHref={intermediaryActive}
           />
           <RoleDropdown
             label="Regulate"
             links={REGULATOR_LINKS}
             accentColor="#a78bfa"
-            accentBg="rgba(167,139,250,0.10)"
             activeHref={regulatorActive}
           />
           <RoleDropdown
             label="Invest"
             links={INVESTOR_LINKS}
             accentColor="#10b981"
-            accentBg="rgba(16,185,129,0.10)"
             activeHref={investorActive}
           />
         </div>

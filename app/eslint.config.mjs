@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "contracts/typechain-types/**",
+    "contracts/cache/**",
+    "contracts/artifacts/**",
+    "contracts/scripts/**",
+    "test-deploy-server.cjs",
   ]),
 ]);
 

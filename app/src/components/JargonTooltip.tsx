@@ -88,7 +88,6 @@ export default function JargonTooltip({ term, children }: JargonTooltipProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const entry = GLOSSARY[term];
-  if (!entry) return <>{children}</>;
 
   // Close on outside click
   useEffect(() => {
@@ -101,6 +100,8 @@ export default function JargonTooltip({ term, children }: JargonTooltipProps) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  if (!entry) return <>{children}</>;
 
   return (
     <span ref={ref} className="relative inline-block">

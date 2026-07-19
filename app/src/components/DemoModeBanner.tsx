@@ -1,15 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 export default function DemoModeBanner() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    // Show unless explicitly dismissed in this session
-    if (sessionStorage.getItem("demo-banner-dismissed") !== "1") {
-      setVisible(true);
-    }
-  }, []);
+  const [visible, setVisible] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return sessionStorage.getItem("demo-banner-dismissed") !== "1";
+  });
 
   if (!visible) return null;
 

@@ -53,21 +53,6 @@ interface DeployResult {
   identityRegistry?: DeployResult;
 }
 
-interface CouponPayoutRecord {
-  txHash: string;
-  recipientPublicKey: string;
-  amountCspr: string;
-  submittedAt: string;
-}
-
-interface CouponPayoutInvestorOption {
-  publicKey: string;
-  tokenCount: number;
-  paymentRef: string;
-  mintTxHash: string;
-  createdAt: string;
-}
-
 const STATUS_CFG: Record<AppStatus, { color: string; bg: string; border: string; dot: string; label: string }> = {
   "Pending SFC Review": { color: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.3)",  dot: "bg-amber-400",   label: "Pending" },
   "Approved":           { color: "#10b981", bg: "rgba(16,185,129,0.08)",  border: "rgba(16,185,129,0.3)",  dot: "bg-emerald-400", label: "Approved" },
@@ -170,32 +155,24 @@ export default function TokenizePage() {
   const [deploying,        setDeploying]        = useState(false);
   const [deployMap,        setDeployMap]        = useState<Record<string, DeployResult>>({});
   const [deployError,      setDeployError]      = useState<string | null>(null);
-  const [deployNotice,     setDeployNotice]     = useState<string | null>(null);
   const [walletPublicKey,  setWalletPublicKey]  = useState<string | null>(null);
-  const [deployStep,       setDeployStep]       = useState<"idle" | "connecting" | "signingToken" | "broadcastingToken">("idle");
-  const [payoutOpen,       setPayoutOpen]       = useState(false);
-  const [payoutAmount,     setPayoutAmount]     = useState("2.5");
-  const [payoutRecipient,  setPayoutRecipient]  = useState("");
-  const [payoutMemo,       setPayoutMemo]       = useState("");
-  const [payoutBusy,       setPayoutBusy]       = useState(false);
-  const [payoutError,      setPayoutError]      = useState<string | null>(null);
-  const [payoutNotice,     setPayoutNotice]     = useState<string | null>(null);
-  const [payoutRecords,    setPayoutRecords]    = useState<CouponPayoutRecord[]>([]);
-  const [payoutInvestors,  setPayoutInvestors]  = useState<CouponPayoutInvestorOption[]>([]);
-  const [payoutInvestorsLoading, setPayoutInvestorsLoading] = useState(false);
+  const [deployStep,       setDeployStep]       = useState<"idle" | "connecting" | "signingIdentity" | "broadcastingIdentity" | "signingToken" | "broadcastingToken">("idle");
 
-  function csprToMotes(amountText: string): string {
-    const parsed = Number(amountText);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error("Payout amount must be a positive CSPR value");
+  async function waitForIdentityRegistryContractHash(recordId: string, attempts = 15, intervalMs = 3_000) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const response = await fetch("/api/tokenize/deployments", { cache: "no-store" });
+      if (response.ok) {
+        const deployments = await response.json() as Record<string, DeployResult>;
+        const identityRegistry = deployments[recordId]?.identityRegistry;
+        if (identityRegistry?.contractHash?.trim() || identityRegistry?.status === "Failed") {
+          return identityRegistry;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
 
-    const motes = BigInt(Math.round(parsed * 1_000_000_000));
-    if (motes < 2_500_000_000n) {
-      throw new Error("Minimum Casper native transfer amount is 2.5 CSPR");
-    }
-
-    return motes.toString();
+    return null;
   }
 
   async function loadRecords() {
@@ -239,7 +216,6 @@ export default function TokenizePage() {
   async function handleDeploy() {
     if (!selected || deploying) return;
     setDeployError(null);
-    setDeployNotice(null);
     setDeploying(true);
 
     try {
@@ -252,6 +228,129 @@ export default function TokenizePage() {
         pubKey = await walletProvider.getActivePublicKey();
         if (!pubKey) throw new Error("Casper Wallet did not return a public key");
         setWalletPublicKey(pubKey);
+      }
+
+      let currentDeployment = deployMap[selected.id];
+      let identityEntry = currentDeployment?.identityRegistry;
+
+      if (identityEntry && !identityEntry.contractHash && identityEntry.status !== "Failed") {
+        setDeployStep("broadcastingIdentity");
+        const reconciledIdentity = await waitForIdentityRegistryContractHash(selected.id);
+        if (reconciledIdentity) {
+          identityEntry = {
+            ...identityEntry,
+            ...reconciledIdentity,
+          };
+          currentDeployment = {
+            ...(currentDeployment ?? {} as DeployResult),
+            identityRegistry: identityEntry,
+          };
+          setDeployMap((prev) => ({
+            ...prev,
+            [selected.id]: {
+              ...(prev[selected.id] ?? {} as DeployResult),
+              identityRegistry: identityEntry,
+            },
+          }));
+        }
+      }
+
+      const identityDeployReference = identityEntry?.deployHash ?? identityEntry?.txHash ?? identityEntry?.registrationId;
+
+      if (identityEntry && !identityEntry.contractHash && identityEntry.status !== "Failed" && identityDeployReference) {
+        throw new Error(formatPendingIdentityRegistryMessage(identityEntry));
+      }
+
+      if (!identityEntry?.contractHash) {
+        setDeployStep("signingIdentity");
+        const identityPrepareBody = {
+          signerPublicKey: pubKey,
+          id: selected.id,
+          assetName: selected.asset,
+        };
+        const identityPrepRes = await fetch("/api/tokenize/prepare-identity-deploy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(identityPrepareBody),
+        });
+        const identityPrepData = await identityPrepRes.json() as { error?: string; deployJson?: Record<string, unknown>; deployToken?: string };
+        if (!identityPrepRes.ok || identityPrepData.error) {
+          throw new Error(identityPrepData.error ?? "Failed to prepare identity-registry deploy");
+        }
+
+        const identitySigResult = await walletProvider.sign(JSON.stringify(identityPrepData.deployJson), pubKey);
+        if (identitySigResult.cancelled) throw new Error("Identity-registry signing cancelled by user");
+        if (!identitySigResult.signatureHex) throw new Error("Casper Wallet did not return an identity-registry signature");
+
+        setDeployStep("broadcastingIdentity");
+        const identityBroadRes = await fetch("/api/tokenize/broadcast-identity-deploy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deployToken: identityPrepData.deployToken,
+            signatureHex: identitySigResult.signatureHex,
+            signerPublicKey: pubKey,
+            id: selected.id,
+            assetName: selected.asset,
+          }),
+        });
+        const identityData = await identityBroadRes.json() as DeployResult & { error?: string };
+        if (!identityBroadRes.ok || identityData.error) {
+          throw new Error(identityData.error ?? "Identity-registry broadcast failed");
+        }
+
+        identityEntry = {
+          txHash: identityData.txHash,
+          deployHash: identityData.deployHash,
+          registrationId: identityData.registrationId,
+          assetId: identityData.assetId,
+          assetName: identityData.assetName ?? selected.asset,
+          contractHash: identityData.contractHash,
+          contractAddress: identityData.contractAddress,
+          blockNumber: identityData.blockNumber,
+          network: identityData.network,
+          deployedAt: identityData.deployedAt,
+          standard: identityData.standard,
+          gasUsed: identityData.gasUsed,
+          explorerUrl: identityData.explorerUrl,
+          status: identityData.status,
+          pendingReason: identityData.pendingReason,
+        };
+
+        await fetch("/api/tokenize/deployments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, identityRegistry: identityEntry }),
+        });
+
+        if (!identityEntry.contractHash) {
+          const reconciledIdentity = await waitForIdentityRegistryContractHash(selected.id);
+          if (!reconciledIdentity?.contractHash) {
+            if (reconciledIdentity?.status === "Failed") {
+              throw new Error(reconciledIdentity.pendingReason ?? "Identity registry deploy failed on Casper.");
+            }
+
+            throw new Error(formatPendingIdentityRegistryMessage(identityEntry));
+          }
+
+          identityEntry.contractHash = reconciledIdentity.contractHash;
+          identityEntry.contractAddress = reconciledIdentity.contractAddress;
+          identityEntry.status = reconciledIdentity.status;
+          identityEntry.pendingReason = reconciledIdentity.pendingReason;
+          identityEntry.explorerUrl = reconciledIdentity.explorerUrl ?? identityEntry.explorerUrl;
+        }
+
+        currentDeployment = {
+          ...(currentDeployment ?? {} as DeployResult),
+          identityRegistry: identityEntry,
+        };
+        setDeployMap((prev) => ({
+          ...prev,
+          [selected.id]: {
+            ...(prev[selected.id] ?? {} as DeployResult),
+            identityRegistry: identityEntry,
+          },
+        }));
       }
 
       // Step 2 — ask server to build unsigned Casper transaction with wallet's public key
@@ -329,18 +428,15 @@ export default function TokenizePage() {
       await fetch("/api/tokenize/deployments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, deployment: newEntry }),
+        body: JSON.stringify({ id: selected.id, deployment: newEntry, identityRegistry: currentDeployment?.identityRegistry }),
       });
       setDeployMap((prev) => ({
         ...prev,
-        [selected.id]: newEntry,
+        [selected.id]: {
+          ...newEntry,
+          identityRegistry: currentDeployment?.identityRegistry,
+        },
       }));
-      setDeployNotice(
-        newEntry.status === "Deployed"
-          ? "Token Coupon deploy finalized on Casper."
-          : `Token Coupon deploy submitted. Track finality in explorer: ${newEntry.deployHash ?? newEntry.txHash ?? newEntry.registrationId ?? "N/A"}`
-      );
-      void loadRecords();
     } catch (err) {
       console.warn("handleDeploy failed:", err instanceof Error ? err.message : String(err));
       setDeployError(err instanceof Error ? err.message : "Casper registration failed, please retry");
@@ -349,128 +445,6 @@ export default function TokenizePage() {
       setDeployStep("idle");
     }
   }
-
-  async function handleCouponPayout() {
-    if (!selected || !deploy || payoutBusy) return;
-
-    setPayoutBusy(true);
-    setPayoutError(null);
-    setPayoutNotice(null);
-
-    try {
-      const walletProvider = getCasperWalletProvider();
-      let signer = walletPublicKey;
-      if (!signer) {
-        await walletProvider.requestConnection();
-        signer = await walletProvider.getActivePublicKey();
-        if (!signer) throw new Error("Casper Wallet did not return a public key");
-        setWalletPublicKey(signer);
-      }
-
-      if (!payoutRecipient.trim()) {
-        throw new Error("Please enter the investor Casper public key");
-      }
-
-      const amountMotes = csprToMotes(payoutAmount);
-      const refNum = `${selected.id}-COUPON-${Date.now().toString(36).toUpperCase()}`;
-
-      const buildRes = await fetch("/api/tokenize/coupon-payout/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderPublicKeyHex: signer,
-          recipientPublicKeyHex: payoutRecipient.trim(),
-          amountMotes,
-          refNum,
-        }),
-      });
-      const buildData = await buildRes.json() as { deployJson?: unknown; error?: string };
-      if (!buildRes.ok || !buildData.deployJson) {
-        throw new Error(buildData.error ?? "Failed to build coupon payout transfer");
-      }
-
-      const sigResult = await walletProvider.sign(JSON.stringify(buildData.deployJson), signer);
-      if (sigResult.cancelled) throw new Error("Coupon payout signing cancelled by user");
-      if (!sigResult.signatureHex) throw new Error("Casper Wallet did not return signatureHex");
-
-      const submitRes = await fetch("/api/subscribe/casper-transfer/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deployJson: buildData.deployJson,
-          signatureHex: sigResult.signatureHex,
-          signingPublicKeyHex: signer,
-        }),
-      });
-      const submitData = await submitRes.json() as {
-        deployHash?: string;
-        txHash?: string;
-        transactionHash?: string;
-        error?: string;
-      };
-      if (!submitRes.ok) {
-        throw new Error(submitData.error ?? "Failed to submit coupon payout transfer");
-      }
-
-      const txHash = submitData.transactionHash ?? submitData.deployHash ?? submitData.txHash;
-      if (!txHash) {
-        throw new Error("Casper transfer submitted but tx hash is missing");
-      }
-
-      setPayoutRecords((prev) => [{
-        txHash,
-        recipientPublicKey: payoutRecipient.trim(),
-        amountCspr: payoutAmount,
-        submittedAt: new Date().toISOString(),
-      }, ...prev]);
-      setPayoutNotice(`Payout submitted: ${payoutAmount} CSPR -> ${payoutRecipient.trim().slice(0, 14)}...`);
-      setPayoutMemo("");
-    } catch (err) {
-      setPayoutError(err instanceof Error ? err.message : "Payout failed, please retry");
-    } finally {
-      setPayoutBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    const selectedRecord = selected;
-    const currentDeploy = selectedRecord ? deployMap[selectedRecord.id] : null;
-
-    if (!selectedRecord || !currentDeploy || !payoutOpen) {
-      setPayoutInvestors([]);
-      return;
-    }
-
-    let active = true;
-    async function loadPayoutInvestors() {
-      setPayoutInvestorsLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (currentDeploy?.assetId) params.set("assetId", currentDeploy.assetId);
-        if (selectedRecord?.asset) params.set("assetName", selectedRecord.asset);
-        if (selectedRecord?.id) params.set("deploymentId", selectedRecord.id);
-
-        const res = await fetch(`/api/tokenize/coupon-payout/investors?${params.toString()}`, { cache: "no-store" });
-        const data = await res.json() as { investors?: CouponPayoutInvestorOption[] };
-        if (!active) return;
-
-        const investors = data.investors ?? [];
-        setPayoutInvestors(investors);
-        if (!payoutRecipient.trim() && investors.length > 0) {
-          setPayoutRecipient(investors[0].publicKey);
-        }
-      } catch {
-        if (active) setPayoutInvestors([]);
-      } finally {
-        if (active) setPayoutInvestorsLoading(false);
-      }
-    }
-
-    void loadPayoutInvestors();
-    return () => {
-      active = false;
-    };
-  }, [selected, deployMap, payoutOpen, payoutRecipient]);
 
   const counts = {
     All: records.length,
@@ -485,14 +459,6 @@ export default function TokenizePage() {
       ? records.filter((r) => !!deployMap[r.id])
       : records.filter((r) => r.status === filter);
   const deploy = selected ? deployMap[selected.id] : null;
-
-  // Derived deploy-phase flags used to drive UI sections below.
-  const tokenDeployed = Boolean(deploy?.contractHash);
-  const hasTokenDeployAttempt = Boolean(deploy && (deploy.deployHash || deploy.txHash || deploy.registrationId || deploy.status === "Failed"));
-  const tokenDeployFailed = deploy?.status === "Failed";
-  const tokenDeployPending = Boolean(hasTokenDeployAttempt && !tokenDeployed && !tokenDeployFailed);
-  const readyForTokenDeploy = selected?.status === "Approved" && !tokenDeployed;
-  const showDeployAction = selected?.status === "Approved" && (!deploy || !tokenDeployed);
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -942,12 +908,10 @@ export default function TokenizePage() {
               )}
 
               {/* Deploy section */}
-              {showDeployAction && (
+              {selected.status === "Approved" && !deploy && (
                 <div className="rounded-xl p-5" style={{ background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.2)" }}>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Register Casper Issuance · Casper Network</div>
-                  <p className="text-xs text-slate-600 mb-4">
-                    SFC authorisation confirmed. Sign and broadcast the Token Coupon WASM to complete issuance on Casper.
-                  </p>
+                  <p className="text-xs text-slate-600 mb-4">SFC authorisation confirmed. Register this issuance on Casper Testnet, binding the SFC reference to the Casper compliance and identity workflow. This avoids the old Solidity deployment path.</p>
 
                   <div className="flex items-center gap-2 mb-3 text-[10px]" style={{ color: "#10b981" }}>
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -963,17 +927,14 @@ export default function TokenizePage() {
                       {deployError}
                     </div>
                   )}
-                  {deployNotice && (
-                    <div className="text-[11px] text-amber-700 rounded-lg px-3 py-2 mb-3" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
-                      {deployNotice}
-                    </div>
-                  )}
 
                   {/* Step indicator when deploying */}
                   {deploying && (
                     <div className="flex items-center gap-2 text-[11px] text-indigo-600 rounded-lg px-3 py-2 mb-3" style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)" }}>
                       <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
                       {deployStep === "connecting" && "Connecting Casper Wallet…"}
+                      {deployStep === "signingIdentity" && "Waiting for identity-registry wallet signature…"}
+                      {deployStep === "broadcastingIdentity" && "Broadcasting identity-registry to Casper Testnet…"}
                       {deployStep === "signingToken" && "Waiting for token wallet signature…"}
                       {deployStep === "broadcastingToken" && "Broadcasting token deploy to Casper Testnet…"}
                     </div>
@@ -986,54 +947,42 @@ export default function TokenizePage() {
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         {deployStep === "connecting"   && "Connecting Wallet…"}
+                        {deployStep === "signingIdentity" && "Sign Identity Deploy…"}
+                        {deployStep === "broadcastingIdentity" && "Broadcast Identity…"}
                         {deployStep === "signingToken" && "Sign Token Deploy…"}
                         {deployStep === "broadcastingToken" && "Broadcast Token…"}
                         {deployStep === "idle"         && "Registering…"}
                       </>
-                    ) : readyForTokenDeploy
-                        ? "🚀  Deploy Token Coupon →"
-                        : walletPublicKey ? "🚀  Register on Casper →" : "🔗  Connect Wallet & Register →"}
+                    ) : walletPublicKey ? "🚀  Register on Casper →" : "🔗  Connect Wallet & Register →"}
                   </button>
                 </div>
               )}
 
               {/* Deploy result */}
-              {deploy && hasTokenDeployAttempt && (
-                <div className="rounded-xl p-5 space-y-4" style={{ background: tokenDeployFailed ? "rgba(239,68,68,0.05)" : "rgba(99,102,241,0.06)", border: tokenDeployFailed ? "1px solid rgba(239,68,68,0.25)" : "1px solid rgba(99,102,241,0.3)" }}>
+              {deploy && (
+                <div className="rounded-xl p-5 space-y-4" style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.3)" }}>
                   <div className="flex items-center gap-3">
-                    <span className="text-xl">{tokenDeployed ? "✅" : tokenDeployFailed ? "❌" : "🕐"}</span>
+                    <span className="text-xl">{deploy.status === "Deployed" ? "✅" : "🕐"}</span>
                     <div>
-                      <div className={`text-sm font-bold ${tokenDeployFailed ? "text-red-700" : "text-indigo-700"}`}>
-                        Token Coupon Deploy {tokenDeployed ? "Succeeded" : tokenDeployFailed ? "Failed" : "Submitted"}
+                      <div className="text-sm font-bold text-indigo-700">
+                        Casper WASM Deploy {deploy.status === "Deployed" ? "On-Chain" : "Pending Broadcast"}
                       </div>
                       <div className="text-[10px] text-slate-500">{deploy.network} · {deploy.standard} · {deploy.deployedAt}</div>
                     </div>
                   </div>
-                  {tokenDeployed && (
-                    <div className="rounded-lg px-3 py-2.5 text-[11px]" style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.25)" }}>
-                      <span className="font-semibold text-emerald-700">Token Coupon deployed successfully.</span>
-                      <span className="text-slate-600"> The Casper contract hash is finalized and this issuance is ready for servicing.</span>
-                    </div>
-                  )}
-                  {tokenDeployFailed && (
-                    <div className="rounded-lg px-3 py-2.5 text-[11px]" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)" }}>
-                      <span className="font-semibold text-red-700">Token Coupon deploy failed.</span>
-                      <span className="text-slate-600"> {deploy.pendingReason ?? "Casper reported the deploy as failed. Check the transaction hash below for details, then retry deployment."}</span>
-                    </div>
-                  )}
-                  {tokenDeployPending && (
+                  {deploy.status !== "Deployed" && (
                     <div className="rounded-lg px-3 py-2.5 text-[11px]" style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.25)" }}>
-                      <span className="font-semibold text-amber-700">Token Coupon deploy submitted.</span>
-                      <span className="text-slate-600"> Waiting for Casper finality. The transaction hash is shown below.</span>
+                      <span className="font-semibold text-amber-700">Signed deploy saved locally.</span>
+                      <span className="text-slate-600"> The Casper testnet RPC is currently unreachable from this network. The fully signed WASM deploy has been persisted to <code className="text-indigo-600">data/pending-deploys/</code> and will be broadcast automatically when connectivity is restored, or can be sent manually via <code className="text-indigo-600">casper-client put-deploy</code>.</span>
                     </div>
                   )}
                   <div className="space-y-2 rounded-lg p-3" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(99,102,241,0.15)" }}>
                     {([
-                      ["Transaction Hash", deploy.deployHash ?? deploy.txHash ?? deploy.registrationId ?? "—"],
+                      ["Deploy Hash", deploy.deployHash ?? deploy.txHash ?? deploy.registrationId ?? "—"],
                       ["Casper Asset ID", deploy.assetId ?? "—"],
                       ...(deploy.contractHash ? [["Casper Contract Hash", deploy.contractHash]] : []),
-                      ["Status", tokenDeployed ? "Succeeded" : tokenDeployFailed ? "Failed" : "Submitted / Waiting for Finality"],
-                      ...(tokenDeployFailed ? [["Failure Reason", deploy.pendingReason ?? "Deploy failed on Casper"]] : []),
+                      ...(deploy.identityRegistry?.contractHash ? [["Identity Registry Hash", deploy.identityRegistry.contractHash]] : []),
+                      ["Status", deploy.status === "Deployed" ? "On-Chain" : "Pending Broadcast"],
                       ["Standard", deploy.standard],
                       ["Network", deploy.network],
                       ["Submitted At", deploy.deployedAt],
@@ -1046,10 +995,27 @@ export default function TokenizePage() {
                   </div>
                   {deploy.explorerUrl && (
                     <a href={deploy.explorerUrl} target="_blank" rel="noopener noreferrer"
-                      className={`block text-center text-[11px] font-semibold py-2 rounded-lg transition-colors ${tokenDeployFailed ? "text-red-600 hover:text-red-800" : "text-indigo-600 hover:text-indigo-800"}`}
-                      style={{ background: tokenDeployFailed ? "rgba(239,68,68,0.08)" : "rgba(99,102,241,0.08)", border: tokenDeployFailed ? "1px solid rgba(239,68,68,0.2)" : "1px solid rgba(99,102,241,0.2)" }}>
-                      View Token Coupon transaction on Casper Explorer →
+                      className="block text-center text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 py-2 rounded-lg transition-colors"
+                      style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                      {deploy.status === "Deployed" ? "View on Casper Explorer →" : "View on Casper Explorer (pending) →"}
                     </a>
+                  )}
+
+                  {deploy.identityRegistry && (
+                    <div className="space-y-2 rounded-lg p-3" style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.18)" }}>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Identity Registry</div>
+                      {([
+                        ["Deploy Hash", deploy.identityRegistry.deployHash ?? deploy.identityRegistry.txHash ?? deploy.identityRegistry.registrationId ?? "—"],
+                        ["Contract Hash", deploy.identityRegistry.contractHash ?? "—"],
+                        ["Status", deploy.identityRegistry.status ?? "Pending Broadcast"],
+                        ["Standard", deploy.identityRegistry.standard],
+                      ] as [string, string][]).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-4 text-[11px]">
+                          <span className="text-slate-500 shrink-0">{k}</span>
+                          <span className="font-mono text-emerald-700 text-right break-all">{v}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
 
                   <div className="rounded-xl p-5 space-y-2 mt-2" style={{ background: "rgba(16,185,129,0.04)", border: "1px solid rgba(16,185,129,0.2)" }}>
@@ -1058,122 +1024,17 @@ export default function TokenizePage() {
                       Issuance metadata is now deployed through the Casper TokenCoupon WASM flow. Coupon distribution records can be added through the deployed Casper contract as the servicing module expands.
                     </p>
                     <div className="flex flex-wrap gap-2 pt-1">
-                      <button type="button" onClick={() => setPayoutOpen((open) => !open)}
+                      <Link href="/portfolio"
                         className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold text-white transition-opacity hover:opacity-90"
                         style={{ background: "#059669", border: "1px solid #047857" }}>
-                        Distribute Coupon
-                      </button>
-                      <button type="button" onClick={() => setPayoutOpen(true)}
+                        分红派息
+                      </Link>
+                      <Link href="/portfolio"
                         className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors hover:text-slate-900"
                         style={{ color: "#0f766e", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(15,118,110,0.18)" }}>
-                        View Payout History
-                      </button>
+                        查看派息记录
+                      </Link>
                     </div>
-
-                    {payoutOpen && (
-                      <div className="mt-2 rounded-lg p-3 space-y-3" style={{ background: "rgba(255,255,255,0.88)", border: "1px solid rgba(15,118,110,0.2)" }}>
-                        <div className="text-[11px] font-semibold text-emerald-700">Initiate Casper coupon payout on this page</div>
-                        <p className="text-[10px] text-slate-500">
-                          Send CSPR directly from the issuer's currently connected wallet to the investor wallet without leaving this page.
-                          {payoutMemo.trim() ? ` Note: ${payoutMemo.trim()}` : ""}
-                        </p>
-
-                        <label className="block text-[10px] text-slate-500">
-                          Investors who purchased this token
-                          <select
-                            value={payoutRecipient}
-                            onChange={(e) => setPayoutRecipient(e.target.value)}
-                            className="mt-1 w-full rounded px-2.5 py-2 text-[11px] outline-none"
-                            style={{ background: "#fff", border: "1px solid rgba(0,0,0,0.14)", color: "#0f172a" }}>
-                            <option value="">{payoutInvestorsLoading ? "Loading..." : payoutInvestors.length > 0 ? "Select investor" : "No purchase records"}</option>
-                            {payoutInvestors.map((item) => (
-                              <option key={`${item.publicKey}-${item.createdAt}`} value={item.publicKey}>
-                                {item.publicKey.slice(0, 14)}... · {item.tokenCount} tokens
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          <label className="text-[10px] text-slate-500">
-                            Investor Casper Public Key
-                            <input
-                              value={payoutRecipient}
-                              onChange={(e) => setPayoutRecipient(e.target.value)}
-                              placeholder="02..."
-                              className="mt-1 w-full rounded px-2.5 py-2 text-[11px] font-mono outline-none"
-                              style={{ background: "#fff", border: "1px solid rgba(0,0,0,0.14)", color: "#0f172a" }}
-                            />
-                          </label>
-                          <label className="text-[10px] text-slate-500">
-                            Payout Amount (CSPR)
-                            <input
-                              value={payoutAmount}
-                              onChange={(e) => setPayoutAmount(e.target.value)}
-                              placeholder="2.5"
-                              className="mt-1 w-full rounded px-2.5 py-2 text-[11px] outline-none"
-                              style={{ background: "#fff", border: "1px solid rgba(0,0,0,0.14)", color: "#0f172a" }}
-                            />
-                          </label>
-                        </div>
-
-                        <label className="block text-[10px] text-slate-500">
-                          Note (Optional)
-                          <input
-                            value={payoutMemo}
-                            onChange={(e) => setPayoutMemo(e.target.value)}
-                            placeholder="2026Q3 coupon"
-                            className="mt-1 w-full rounded px-2.5 py-2 text-[11px] outline-none"
-                            style={{ background: "#fff", border: "1px solid rgba(0,0,0,0.14)", color: "#0f172a" }}
-                          />
-                        </label>
-
-                        {payoutNotice && (
-                          <div className="text-[11px] text-emerald-700 rounded px-2.5 py-2" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
-                            {payoutNotice}
-                          </div>
-                        )}
-                        {payoutError && (
-                          <div className="text-[11px] text-red-700 rounded px-2.5 py-2" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                            {payoutError}
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => void handleCouponPayout()}
-                          disabled={payoutBusy || !payoutRecipient.trim() || !payoutAmount.trim()}
-                          className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                          style={{ background: "#0f766e", border: "1px solid #0d9488" }}>
-                          {payoutBusy ? "Awaiting wallet signature / broadcasting..." : "Distribute Coupon with Casper Wallet"}
-                        </button>
-
-                        {payoutRecords.length > 0 && (
-                          <div className="space-y-1.5 pt-1">
-                            <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Recent Payouts</div>
-                            {payoutRecords.slice(0, 5).map((item) => (
-                              <div key={`${item.txHash}-${item.submittedAt}`} className="rounded px-2.5 py-2 text-[10px]" style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(0,0,0,0.08)" }}>
-                                <div className="flex justify-between gap-2">
-                                  <span className="text-slate-500">Amount</span>
-                                  <span className="font-mono text-slate-800">{item.amountCspr} CSPR</span>
-                                </div>
-                                <div className="flex justify-between gap-2 mt-1">
-                                  <span className="text-slate-500">Recipient</span>
-                                  <span className="font-mono text-slate-800 break-all text-right">{item.recipientPublicKey}</span>
-                                </div>
-                                <a
-                                  href={`https://testnet.cspr.live/deploy/${item.txHash}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="mt-1 inline-block font-mono text-emerald-700 underline break-all">
-                                  {item.txHash}
-                                </a>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                 </div>

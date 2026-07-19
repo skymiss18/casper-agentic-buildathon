@@ -16,7 +16,18 @@ import { readDeploymentsWithReconciliation } from "@/lib/casper-deployments";
 import { mintCasperTokenCoupon, verifyCasperNativeTransfer } from "@/lib/casper-token-deploy";
 
 // Check if wallet has an approved KYC record in local JSON store
-type KycRecord = { walletAddress: string; status: string; aiScore: number | null; jurisdiction?: string };
+type KycRecord = {
+  walletAddress: string;
+  status: string;
+  aiScore: number | null;
+  jurisdiction?: string;
+  riskBand?: number | null;
+  kycExpiry?: number | null;
+  credentialCommitment?: string | null;
+  nullifierHash?: string | null;
+  proofHash?: string | null;
+  monitoringStatus?: string | null;
+};
 
 type CasperDeployment = {
   assetName?: string;
@@ -105,6 +116,28 @@ function isKycApprovedLocally(walletAddress: string): boolean {
     return readKycApps().some(
       (a) => {
         if (a.status !== "approved" || (a.aiScore ?? 0) < 70) return false;
+
+        const monitoringStatus = (a.monitoringStatus ?? "").toLowerCase();
+        if (monitoringStatus === "revoked" || monitoringStatus === "revoke_prepared") {
+          return false;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const kycExpiry = typeof a.kycExpiry === "number" ? a.kycExpiry : 0;
+        if (kycExpiry > 0 && kycExpiry < now) {
+          return false;
+        }
+
+        const riskBand = typeof a.riskBand === "number" ? a.riskBand : null;
+        if (riskBand !== null && riskBand >= 3) {
+          return false;
+        }
+
+        const hasPrivacyCredential = Boolean(a.credentialCommitment && a.nullifierHash && a.proofHash);
+        if (hasPrivacyCredential && (a.aiScore ?? 0) < 70) {
+          return false;
+        }
+
         const recordAliases = casperWalletAliases(a.walletAddress);
         if (recordAliases.length === 0) return false;
         return recordAliases.some((alias) => targetAliases.has(alias));

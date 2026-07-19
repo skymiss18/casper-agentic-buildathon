@@ -3,7 +3,6 @@
 
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import type { AuditReport, AuditSeverity } from "@/lib/audit";
 
 import DocumentUploadField from "@/components/DocumentUploadField";
@@ -225,9 +224,6 @@ function RiskCard({ title, report }: { title: string; report: DocumentRisk | nul
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CompliancePage() {
-
-  const router = useRouter();
-
   const [text,             setText]             = useState("");
 
   const [assetType,        setAssetType]        = useState<AssetType>("REIT");
@@ -398,6 +394,8 @@ export default function CompliancePage() {
 
     e.preventDefault();
 
+    setLoadingStep(0);
+
     setLoading(true); setError(null); setResult(null); setTradeResult(null);
 
     try {
@@ -462,9 +460,11 @@ export default function CompliancePage() {
 
       if (stored) {
 
-        setText(stored);
-
         sessionStorage.removeItem("harbourRWA_prospectusText");
+
+        const id = window.setTimeout(() => setText(stored), 0);
+
+        return () => window.clearTimeout(id);
 
       }
 
@@ -476,7 +476,7 @@ export default function CompliancePage() {
 
   useEffect(() => {
 
-    if (!loading) { setLoadingStep(0); return; }
+    if (!loading) return;
 
     const id = setInterval(() => setLoadingStep((s) => s + 1), 1400);
 
@@ -513,8 +513,10 @@ export default function CompliancePage() {
     setError(null);
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void loadSubmissions(); }, []);
+  useEffect(() => {
+    const id = window.setTimeout(() => { void loadSubmissions(); }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
 
 

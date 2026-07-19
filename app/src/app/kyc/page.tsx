@@ -49,6 +49,14 @@ interface KYCRecord {
   aiSummary: string | null;
   reviewNotes: string;
   txHash: string | null;
+  credentialCommitment?: string | null;
+  nullifierHash?: string | null;
+  proofHash?: string | null;
+  monitoringStatus?: string | null;
+  riskBand?: number | null;
+  agentReason?: string | null;
+  lastScreenedAt?: string | null;
+  kycExpiry?: number | null;
 }
 
 const STEP_LABELS = ["Investor Profile", "KYC Documents", "Wallet & Consent", "Submission"];
@@ -65,6 +73,12 @@ function formatBytes(n: number) {
   if (n < 1024) return n + " B";
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
   return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function shortHash(value: string | null | undefined) {
+  if (!value) return "-";
+  if (value.length <= 20) return value;
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
 // ── File Upload Widget ─────────────────────────────────────────────────────────
@@ -156,16 +170,23 @@ export default function KYCPage() {
   const [recordsLoading, setRecordsLoading]  = useState(true);
   const [selectedRecord, setSelectedRecord]  = useState<KYCRecord | null>(null);
 
-  function refreshRecords() {
-    setRecordsLoading(true);
+  function refreshRecords(showLoading = true) {
+    if (showLoading) setRecordsLoading(true);
     fetch("/api/kyc/applications")
       .then((r) => r.json())
       .then((d) => setMyRecords((d.applications ?? []) as KYCRecord[]))
       .catch(() => {})
-      .finally(() => setRecordsLoading(false));
+      .finally(() => {
+        if (showLoading) setRecordsLoading(false);
+      });
   }
 
-  useEffect(() => { refreshRecords(); }, [appId]); // refresh after new submission
+  useEffect(() => {
+    fetch("/api/kyc/applications")
+      .then((r) => r.json())
+      .then((d) => setMyRecords((d.applications ?? []) as KYCRecord[]))
+      .catch(() => {});
+  }, [appId]); // refresh after new submission
 
   function handleSelectRecord(rec: KYCRecord) {
     setSelectedRecord(rec);
@@ -333,7 +354,7 @@ export default function KYCPage() {
                 })}
               </div>
             )}
-            <button type="button" onClick={refreshRecords}
+            <button type="button" onClick={() => refreshRecords()}
               className="w-full mt-2 text-[10px] text-slate-500 hover:text-slate-700 py-1.5 rounded transition-colors"
               style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
               Refresh
@@ -392,6 +413,38 @@ export default function KYCPage() {
             )}
           </div>
           <button type="button" className="text-[10px] text-slate-400 hover:text-slate-600 shrink-0" onClick={() => { setSelectedRecord(null); setStep(1); setAppId(null); }}>✕ Clear</button>
+        </div>
+      )}
+
+      {selectedRecord && (
+        <div className="mb-5 rounded-lg px-4 py-3" style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.18)" }}>
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Privacy Credential Lifecycle</div>
+            <div className="text-[10px] text-slate-500">{selectedRecord.monitoringStatus ?? "Not monitored yet"}</div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
+            <div className="rounded px-2.5 py-2" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div className="text-slate-500">Risk Band</div>
+              <div className="text-slate-800 font-semibold">{selectedRecord.riskBand ? `Band ${selectedRecord.riskBand}` : "-"}</div>
+            </div>
+            <div className="rounded px-2.5 py-2" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div className="text-slate-500">Commitment</div>
+              <div className="text-slate-800 font-mono">{shortHash(selectedRecord.credentialCommitment)}</div>
+            </div>
+            <div className="rounded px-2.5 py-2" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div className="text-slate-500">Proof Hash</div>
+              <div className="text-slate-800 font-mono">{shortHash(selectedRecord.proofHash)}</div>
+            </div>
+            <div className="rounded px-2.5 py-2" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div className="text-slate-500">KYC Expiry</div>
+              <div className="text-slate-800">{selectedRecord.kycExpiry ? new Date(selectedRecord.kycExpiry * 1000).toLocaleDateString("en-GB") : "-"}</div>
+            </div>
+          </div>
+          {selectedRecord.agentReason && (
+            <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
+              Agent decision: {selectedRecord.agentReason}
+            </p>
+          )}
         </div>
       )}
 

@@ -39,6 +39,15 @@ interface KYCApp {
   signerPublicKey?: string | null;
   pendingReason?: string | null;
   chainStatus?: string | null;
+  aiRiskScore?: number | null;
+  riskBand?: number | null;
+  credentialCommitment?: string | null;
+  nullifierHash?: string | null;
+  proofHash?: string | null;
+  monitoringStatus?: string | null;
+  lastScreenedAt?: string | null;
+  agentReason?: string | null;
+  kycExpiry?: number | null;
 }
 
 interface KycChainConfig {
@@ -79,15 +88,6 @@ function StatusBadge({ s }: { s: AppStatus }) {
   );
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 70 ? "#4ade80" : score >= 50 ? "#f59e0b" : "#f87171";
-  return (
-    <span className="font-mono font-bold text-sm" style={{ color }}>
-      {score}<span className="text-[10px] text-slate-600">/100</span>
-    </span>
-  );
-}
-
 function ScoreBar({ score }: { score: number }) {
   const pct = Math.min(100, score);
   const color = pct >= 70 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-red-500";
@@ -109,8 +109,24 @@ export default function AdminKYCPage() {
   const [filterStatus, setFilterStatus] = useState<AppStatus | "all">("all");
   const [loading, setLoading] = useState(true);
   const [chainConfig, setChainConfig] = useState<KycChainConfig | null>(null);
-  const [chainConfigLoading, setChainConfigLoading] = useState(true);
   const [approvedAssets, setApprovedAssets] = useState<ApprovedAssetOption[]>([]);
+  const [monitoring, setMonitoring] = useState(false);
+  const [agentBusyAction, setAgentBusyAction] = useState<"analyze" | "update" | "revoke" | null>(null);
+  const [agentMessage, setAgentMessage] = useState<string | null>(null);
+  const [agentQueue, setAgentQueue] = useState<Array<{ id: string; action: string; reason: string; confidence: number; riskBand: number }>>([]);
+
+  function shortHash(value: string | null | undefined) {
+    if (!value) return "-";
+    if (value.length <= 16) return value;
+    return `${value.slice(0, 10)}...${value.slice(-8)}`;
+  }
+
+  async function refreshApplications(showLoading = false) {
+    if (showLoading) setLoading(true);
+    const data = await fetch("/api/kyc/applications", { cache: "no-store" }).then((r) => r.json());
+    setApps((data.applications ?? []).map((a: Partial<KYCApp>) => ({ subscriptionTokens: 0, ...a })));
+    if (showLoading) setLoading(false);
+  }
 
   // Load applications from API on mount
   useEffect(() => {
@@ -172,7 +188,6 @@ export default function AdminKYCPage() {
 
   useEffect(() => {
     const assetDeploymentId = selected?.assetDeploymentId?.trim();
-    setChainConfigLoading(true);
     fetch(`/api/kyc/config${assetDeploymentId ? `?assetDeploymentId=${encodeURIComponent(assetDeploymentId)}` : ""}`)
       .then((r) => r.json())
       .then((data: KycChainConfig) => {
@@ -187,8 +202,7 @@ export default function AdminKYCPage() {
             ? "Failed to load asset-scoped Casper KYC contract configuration. Check the server environment and reload."
             : "Select the target asset issuance before approving KYC on-chain.",
         });
-      })
-      .finally(() => setChainConfigLoading(false));
+      });
   }, [selected?.assetDeploymentId]);
 
   useEffect(() => {
@@ -203,7 +217,7 @@ export default function AdminKYCPage() {
     };
     updateApp(selected.id, patch);
     void persistPatch(selected.id, patch);
-  }, [approvedAssets, selected?.assetDeploymentId]);
+  }, [approvedAssets, selected?.assetDeploymentId, selected?.id]);
 
   useEffect(() => {
     if (!selected) return;
@@ -305,9 +319,6 @@ export default function AdminKYCPage() {
     setApproving(true);
     setApproveError(null);
     try {
-      if (chainConfigLoading) {
-        throw new Error("Checking Casper KYC contract configuration. Retry in a moment.");
-      }
       if (!chainConfig?.identityRegistryConfigured) {
         throw new Error(
           chainConfig?.error
@@ -379,20 +390,103 @@ export default function AdminKYCPage() {
     await persistPatch(app.id, rejectPatch);
   }
 
-  const counts = {
-    all: apps.length,
-    pending: apps.filter((a) => a.status === "pending").length,
-    reviewing: apps.filter((a) => a.status === "reviewing").length,
-    ai_scored: apps.filter((a) => a.status === "ai_scored").length,
-    approved: apps.filter((a) => a.status === "approved").length,
-    rejected: apps.filter((a) => a.status === "rejected").length,
-  };
+  async function analyzeWithAgent(app: KYCApp) {
+    setAgentBusyAction("analyze");
+    setAgentMessage(null);
+    try {
+      const res = await fetch("/api/agent/kyc/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: app.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to analyze KYC with agent");
+      }
+      if (data.application) {
+        updateApp(app.id, data.application as Partial<KYCApp>);
+      }
+      setAgentMessage(`Agent analyzed ${app.id}: ${data.recommendation?.action ?? "done"}`);
+    } catch (err) {
+      setAgentMessage(err instanceof Error ? err.message : "Agent analyze failed");
+    } finally {
+      setAgentBusyAction(null);
+    }
+  }
+
+  async function runAgentMonitor() {
+    setMonitoring(true);
+    setAgentMessage(null);
+    try {
+      const res = await fetch("/api/agent/kyc/monitor", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to run agent monitor");
+      }
+      setAgentQueue((data.queue ?? []) as Array<{ id: string; action: string; reason: string; confidence: number; riskBand: number }>);
+      setAgentMessage(`Agent monitor scanned ${data.scanned ?? 0} records and found ${data.actionable ?? 0} actionable items.`);
+      await refreshApplications();
+    } catch (err) {
+      setAgentMessage(err instanceof Error ? err.message : "Agent monitor failed");
+    } finally {
+      setMonitoring(false);
+    }
+  }
+
+  async function executeAgentCredentialAction(app: KYCApp, action: "update" | "revoke") {
+    setAgentBusyAction(action);
+    setApproveError(null);
+    setAgentMessage(null);
+    try {
+      if (!chainConfig?.identityRegistryConfigured) {
+        throw new Error(chainConfig?.error ?? "Casper Identity Registry is not configured.");
+      }
+
+      const { publicKey } = await connectCasperWallet();
+      const endpoint = action === "update"
+        ? "/api/agent/kyc/prepare-update"
+        : "/api/agent/kyc/prepare-revoke";
+      const prepRes = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: app.id,
+          signerPublicKey: publicKey,
+          assetDeploymentId: app.assetDeploymentId?.trim() || undefined,
+        }),
+      });
+      const prepData = await prepRes.json();
+      if (!prepRes.ok) {
+        throw new Error(prepData.error ?? `Failed to prepare ${action} credential deploy`);
+      }
+
+      const signature = await signCasperDeploy(prepData.deployJson, publicKey);
+      const broadRes = await fetch("/api/kyc/broadcast-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deployToken: prepData.deployToken,
+          signerPublicKey: publicKey,
+          signatureHex: signature.signatureHex,
+        }),
+      });
+      const broadData = await broadRes.json();
+      if (!broadRes.ok) {
+        throw new Error(broadData.error ?? `Failed to broadcast ${action} credential deploy`);
+      }
+
+      setAgentMessage(`Credential ${action} transaction submitted: ${broadData.txHash ?? broadData.deployHash ?? "unknown hash"}`);
+      await refreshApplications();
+    } catch (err) {
+      setApproveError(err instanceof Error ? err.message : `Credential ${action} failed`);
+    } finally {
+      setAgentBusyAction(null);
+    }
+  }
 
   const approvalBlockedReason = !selected
     ? null
-    : chainConfigLoading
-      ? "Checking Casper KYC contract configuration..."
-      : !chainConfig?.identityRegistryConfigured
+    : !chainConfig?.identityRegistryConfigured
         ? (chainConfig?.error ?? "Casper Identity Registry is not configured.")
         : null;
 
@@ -464,10 +558,7 @@ export default function AdminKYCPage() {
             )}
 
             <button onClick={() => {
-              setLoading(true);
-              fetch("/api/kyc/applications").then((r) => r.json()).then((data) => {
-                setApps((data.applications ?? []).map((a: Partial<KYCApp>) => ({ subscriptionTokens: 0, ...a })));
-              }).finally(() => setLoading(false));
+              void refreshApplications(true);
             }}
               className="w-full mt-2 text-[10px] text-slate-500 hover:text-slate-700 py-1.5 rounded transition-colors"
               style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
@@ -527,6 +618,8 @@ export default function AdminKYCPage() {
                       ["Jurisdiction",   selected.jurisdiction],
                       ["Investor Type",  selected.investorType === "individual" ? "Individual PI" : "Institutional PI"],
                       ["PEP Status",     selected.pepDeclaration ? "⚠ PEP FLAGGED" : "✓ No PEP"],
+                      ["Risk Band",      selected.riskBand ? `Band ${selected.riskBand}` : "-"],
+                      ["Monitor Status", selected.monitoringStatus ?? "-"],
                     ].map(([k, v]) => (
                       <div key={k} className="rounded-lg p-2.5" style={{ background: "#f8f9fa", border: "1px solid rgba(0,0,0,0.06)" }}>
                         <div className="text-[10px] text-slate-500 mb-0.5">{k}</div>
@@ -543,6 +636,31 @@ export default function AdminKYCPage() {
                   {!isCasperAddressLike(selected.walletAddress) && (
                     <p className="text-[11px] text-red-600 mt-2">Legacy 0x wallet detected. Resubmit this KYC record with a Casper public key or account-hash before approval.</p>
                   )}
+                </div>
+
+                <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Privacy Credential Snapshot</div>
+                  <div className="space-y-1.5 text-[11px]">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Commitment</span>
+                      <code className="text-blue-600 font-mono">{shortHash(selected.credentialCommitment)}</code>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Nullifier</span>
+                      <code className="text-slate-700 font-mono">{shortHash(selected.nullifierHash)}</code>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">Proof Hash</span>
+                      <code className="text-slate-700 font-mono">{shortHash(selected.proofHash)}</code>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-slate-500">KYC Expiry</span>
+                      <span className="text-slate-700">{selected.kycExpiry ? new Date(selected.kycExpiry * 1000).toLocaleDateString("en-GB") : "-"}</span>
+                    </div>
+                    <div className="text-slate-500 leading-relaxed pt-1">
+                      {selected.agentReason ?? "No agent decision recorded yet."}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
@@ -719,6 +837,20 @@ export default function AdminKYCPage() {
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Actions</div>
                     <div className="flex flex-wrap gap-2">
                       <button
+                        onClick={() => void runAgentMonitor()}
+                        disabled={monitoring}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
+                        style={{ background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", color: "#1d4ed8" }}>
+                        {monitoring ? "Monitoring..." : "Run Agent Monitor"}
+                      </button>
+                      <button
+                        onClick={() => void analyzeWithAgent(selected)}
+                        disabled={agentBusyAction !== null}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
+                        style={{ background: "rgba(124,58,237,0.10)", border: "1px solid rgba(124,58,237,0.25)", color: "#6d28d9" }}>
+                        {agentBusyAction === "analyze" ? "Analyzing..." : "Analyze With Agent"}
+                      </button>
+                      <button
                         onClick={() => void runAIScore(selected)}
                         disabled={scoring || selected.status === "reviewing"}
                         className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
@@ -731,6 +863,20 @@ export default function AdminKYCPage() {
                         className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
                         style={{ background: "#16a34a" }}>
                         {approving ? "Waiting for Casper Wallet..." : "✓ Approve & Whitelist"}
+                      </button>
+                      <button
+                        onClick={() => void executeAgentCredentialAction(selected, "update")}
+                        disabled={agentBusyAction !== null || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
+                        style={{ background: "rgba(16,185,129,0.10)", border: "1px solid rgba(16,185,129,0.25)", color: "#047857" }}>
+                        {agentBusyAction === "update" ? "Preparing Update..." : "Agent Update Credential"}
+                      </button>
+                      <button
+                        onClick={() => void executeAgentCredentialAction(selected, "revoke")}
+                        disabled={agentBusyAction !== null || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
+                        style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.25)", color: "#b91c1c" }}>
+                        {agentBusyAction === "revoke" ? "Preparing Revoke..." : "Agent Revoke Credential"}
                       </button>
                       <button
                         onClick={() => void rejectApp(selected)}
@@ -763,6 +909,30 @@ export default function AdminKYCPage() {
                         <span className="shrink-0">✗</span>
                         <span>On-chain error: {approveError}</span>
                       </p>
+                    )}
+                    {agentMessage && (
+                      <p className="text-[11px] text-blue-700 flex items-start gap-1.5">
+                        <span className="shrink-0">i</span>
+                        <span>{agentMessage}</span>
+                      </p>
+                    )}
+                    {agentQueue.length > 0 && (
+                      <div className="rounded-lg p-3" style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.16)" }}>
+                        <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide mb-2">Agent Action Queue</div>
+                        <div className="space-y-1.5">
+                          {agentQueue.slice(0, 5).map((item) => (
+                            <div key={`${item.id}-${item.action}`} className="text-[11px] text-slate-700 leading-relaxed">
+                              <span className="font-mono text-blue-700">{item.id}</span>
+                              <span className="mx-1">·</span>
+                              <span className="font-semibold uppercase">{item.action}</span>
+                              <span className="mx-1">·</span>
+                              <span>Risk band {item.riskBand}</span>
+                              <span className="mx-1">·</span>
+                              <span>{Math.round(item.confidence * 100)}% conf.</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
