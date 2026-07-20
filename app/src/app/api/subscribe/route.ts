@@ -14,6 +14,7 @@ import {
 import { makeAssetIdCasper } from "@/lib/casper-chain";
 import { readDeploymentsWithReconciliation } from "@/lib/casper-deployments";
 import { mintCasperTokenCoupon, verifyCasperNativeTransfer } from "@/lib/casper-token-deploy";
+import { getZkProvider, type ZkProofBundle } from "@/lib/zk-provider";
 
 // Check if wallet has an approved KYC record in local JSON store
 type KycRecord = {
@@ -27,6 +28,21 @@ type KycRecord = {
   nullifierHash?: string | null;
   proofHash?: string | null;
   monitoringStatus?: string | null;
+  zkProof?: string | null;
+  zkPublicSignals?: string[] | null;
+  zkProofScheme?: string | null;
+  zkCircuitId?: string | null;
+  zkVerificationKeyId?: string | null;
+  proofVerified?: boolean | null;
+  zkVerifiedAt?: string | null;
+};
+
+type UsedNullifierRecord = {
+  nullifierHash: string;
+  walletAddress: string;
+  assetName: string;
+  usedAt: string;
+  credentialVerifiedAt: string | null;
 };
 
 type CasperDeployment = {
@@ -68,6 +84,13 @@ const MOTES_PER_CSPR = 1_000_000_000n;
 const USD_CENTS_PER_DEMO_CSPR = 100_000n; // Demo quote: 1 CSPR = USD 1,000.
 const SUBSCRIPTION_FEE_BPS = 25n; // 0.25%
 
+const DEFAULT_PAYMENT_FINALITY_WAIT_MS = 45_000;
+const DEFAULT_PAYMENT_FINALITY_POLL_MS = 3_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function buildRefPrefix(assetName: string) {
   const cleaned = assetName.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   return (cleaned.slice(0, 4) || "RWA") + "-";
@@ -106,14 +129,14 @@ function casperWalletAliases(value: unknown): string[] {
   return Array.from(aliases);
 }
 
-function isKycApprovedLocally(walletAddress: string): boolean {
+function findApprovedKycRecord(walletAddress: string): KycRecord | null {
   try {
     const targetAliases = new Set(casperWalletAliases(walletAddress));
     if (targetAliases.size === 0) {
       targetAliases.add(walletAddress.toLowerCase());
     }
 
-    return readKycApps().some(
+    return readKycApps().find(
       (a) => {
         if (a.status !== "approved" || (a.aiScore ?? 0) < 70) return false;
 
@@ -142,8 +165,69 @@ function isKycApprovedLocally(walletAddress: string): boolean {
         if (recordAliases.length === 0) return false;
         return recordAliases.some((alias) => targetAliases.has(alias));
       }
-    );
-  } catch { return false; }
+    ) ?? null;
+  } catch { return null; }
+}
+
+function isKycApprovedLocally(walletAddress: string): boolean {
+  return findApprovedKycRecord(walletAddress) !== null;
+}
+
+function readUsedNullifiers(): UsedNullifierRecord[] {
+  return readJsonFile<UsedNullifierRecord[]>("subscription-nullifiers.json", []);
+}
+
+function writeUsedNullifiers(records: UsedNullifierRecord[]) {
+  const filePath = join(process.cwd(), "data", "subscription-nullifiers.json");
+  writeFileSync(filePath, JSON.stringify(records, null, 2), "utf-8");
+}
+
+function recordNullifierUsage(entry: UsedNullifierRecord) {
+  const all = readUsedNullifiers();
+  all.unshift(entry);
+  writeUsedNullifiers(all.slice(0, 5000));
+}
+
+// Reconstruct the persisted ZK proof bundle for a KYC record and verify it via the active
+// zk-provider, then check that its nullifier hasn't already been consumed by a prior
+// subscription (unless the credential has been re-issued/refreshed since that prior use).
+async function verifyKycProofForSubscription(
+  record: KycRecord,
+): Promise<{ valid: boolean; reason?: string }> {
+  if (!record.zkProof || !record.proofHash || !record.credentialCommitment || !record.nullifierHash) {
+    return { valid: false, reason: "No privacy-preserving compliance proof is on file for this KYC record." };
+  }
+
+  const bundle: ZkProofBundle = {
+    scheme: (record.zkProofScheme as ZkProofBundle["scheme"]) ?? "zk-ready-hash",
+    circuitId: record.zkCircuitId ?? "kyc-commitment-v1",
+    verificationKeyId: record.zkVerificationKeyId ?? "local-hash-v1",
+    generatedAt: record.zkVerifiedAt ?? new Date().toISOString(),
+    commitment: record.credentialCommitment,
+    nullifierHash: record.nullifierHash,
+    proofHash: record.proofHash,
+    proof: record.zkProof,
+    publicSignals: record.zkPublicSignals ?? [],
+  };
+
+  const verification = await getZkProvider().verifyProof(bundle);
+  if (!verification.valid) {
+    return { valid: false, reason: verification.reason ?? "Compliance proof failed verification." };
+  }
+
+  const usedNullifiers = readUsedNullifiers();
+  const priorUse = usedNullifiers.find((u) => u.nullifierHash === record.nullifierHash);
+  if (priorUse) {
+    const credentialRefreshedSincePriorUse =
+      Boolean(record.zkVerifiedAt) && Boolean(priorUse.credentialVerifiedAt)
+        ? new Date(record.zkVerifiedAt as string).getTime() > new Date(priorUse.credentialVerifiedAt as string).getTime()
+        : false;
+    if (!credentialRefreshedSincePriorUse) {
+      return { valid: false, reason: "This compliance credential has already been used for a previous subscription. Refresh KYC to re-issue it." };
+    }
+  }
+
+  return { valid: true };
 }
 
 function isEvmAddress(value: unknown): value is `0x${string}` {
@@ -267,6 +351,26 @@ function getTreasuryPublicKey() {
   return key.trim();
 }
 
+async function waitForCasperPaymentFinality(input: {
+  transactionHash: string;
+  expectedSenderPublicKey: string;
+  expectedRecipientPublicKey?: string;
+  expectedMinimumMotes: string;
+  expectedTransferId?: number;
+}) {
+  const waitMs = Number(process.env.CASPER_SUBSCRIBE_PAYMENT_FINALITY_WAIT_MS ?? DEFAULT_PAYMENT_FINALITY_WAIT_MS);
+  const pollMs = Number(process.env.CASPER_SUBSCRIBE_PAYMENT_FINALITY_POLL_MS ?? DEFAULT_PAYMENT_FINALITY_POLL_MS);
+  const deadline = Date.now() + Math.max(0, Number.isFinite(waitMs) ? waitMs : DEFAULT_PAYMENT_FINALITY_WAIT_MS);
+  const interval = Math.max(500, Number.isFinite(pollMs) ? pollMs : DEFAULT_PAYMENT_FINALITY_POLL_MS);
+
+  let latest = await verifyCasperNativeTransfer(input);
+  while (!latest.ok && latest.status === "Pending" && Date.now() < deadline) {
+    await sleep(interval);
+    latest = await verifyCasperNativeTransfer(input);
+  }
+  return latest;
+}
+
 // POST /api/subscribe
 // Body: { walletAddress, casperPublicKey?, tokenCount, assetName?, refNum?, paymentTxHash? }
 // EVM path is kept for legacy Mantle demos; Casper path credits TokenCoupon after native CSPR payment.
@@ -296,8 +400,11 @@ export async function POST(req: NextRequest) {
       ].filter((value): value is string => Boolean(value && value.trim()));
 
       const kycWalletAddress = kycCandidates[0] ?? casperPublicKey;
-      const kycApproved = kycCandidates.some((candidate) => isKycApprovedLocally(candidate))
-        || process.env.CASPER_SUBSCRIBE_SKIP_LOCAL_KYC === "true";
+      const skipLocalKyc = process.env.CASPER_SUBSCRIBE_SKIP_LOCAL_KYC === "true";
+      const matchedKycRecord = kycCandidates
+        .map((candidate) => findApprovedKycRecord(candidate))
+        .find((record): record is KycRecord => record !== null) ?? null;
+      const kycApproved = matchedKycRecord !== null || skipLocalKyc;
       if (!kycApproved) {
         return NextResponse.json({
           eligible: false,
@@ -306,6 +413,21 @@ export async function POST(req: NextRequest) {
           refNum,
           message: "Investor is not eligible: KYC not verified or compliance score below 70. Complete KYC first.",
         }, { status: 422 });
+      }
+
+      // Re-verify the investor's persisted ZK compliance proof at the moment of purchase
+      // (not just its approval flag), and reject reuse of an already-consumed credential.
+      if (matchedKycRecord && !skipLocalKyc) {
+        const proofCheck = await verifyKycProofForSubscription(matchedKycRecord);
+        if (!proofCheck.valid) {
+          return NextResponse.json({
+            eligible: false,
+            onChain: false,
+            txHash: null,
+            refNum,
+            message: `Compliance credential rejected: ${proofCheck.reason ?? "proof verification failed"}. Refresh KYC to re-issue a valid credential.`,
+          }, { status: 422 });
+        }
       }
 
       const deployment = await findCasperDeployment(assetName);
@@ -370,7 +492,7 @@ export async function POST(req: NextRequest) {
       }
 
       const expectedMotes = expectedPaymentMotes(assetName, tokenCount);
-      const paymentVerification = await verifyCasperNativeTransfer({
+      const paymentVerification = await waitForCasperPaymentFinality({
         transactionHash: paymentTxHash,
         expectedSenderPublicKey: casperPublicKey,
         expectedRecipientPublicKey: getTreasuryPublicKey(),
@@ -395,7 +517,7 @@ export async function POST(req: NextRequest) {
           casperPublicKey,
           refNum,
           message: paymentVerification.status === "Pending"
-            ? "CSPR payment has been submitted but is not finalized yet. Retry token credit after Casper confirms the transfer."
+            ? "CSPR payment has been submitted but is still pending Casper finality after automatic retries. Please retry confirmation in a moment."
             : paymentVerification.reason ?? "CSPR payment verification failed; RWA token credit was not minted.",
         }, { status: responseStatus });
       }
@@ -421,6 +543,16 @@ export async function POST(req: NextRequest) {
         mintStatus: mintResult.status,
         createdAt: new Date().toISOString(),
       });
+
+      if (matchedKycRecord?.nullifierHash) {
+        recordNullifierUsage({
+          nullifierHash: matchedKycRecord.nullifierHash,
+          walletAddress: kycWalletAddress,
+          assetName,
+          usedAt: new Date().toISOString(),
+          credentialVerifiedAt: matchedKycRecord.zkVerifiedAt ?? null,
+        });
+      }
 
       return NextResponse.json({
         eligible: true,

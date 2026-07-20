@@ -50,6 +50,7 @@ interface DeployResult {
   explorerUrl?: string;
   status?: string;
   pendingReason?: string;
+  packageKeyName?: string;
   identityRegistry?: DeployResult;
 }
 
@@ -424,6 +425,7 @@ export default function TokenizePage() {
         explorerUrl: data.explorerUrl,
         status: data.status,
         pendingReason: data.pendingReason,
+        packageKeyName: data.packageKeyName,
       };
       await fetch("/api/tokenize/deployments", {
         method: "POST",
@@ -1027,12 +1029,12 @@ export default function TokenizePage() {
                       <Link href="/portfolio"
                         className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold text-white transition-opacity hover:opacity-90"
                         style={{ background: "#059669", border: "1px solid #047857" }}>
-                        分红派息
+                        Distribute Coupon
                       </Link>
                       <Link href="/portfolio"
                         className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors hover:text-slate-900"
                         style={{ color: "#0f766e", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(15,118,110,0.18)" }}>
-                        查看派息记录
+                        View Coupon History
                       </Link>
                     </div>
                   </div>

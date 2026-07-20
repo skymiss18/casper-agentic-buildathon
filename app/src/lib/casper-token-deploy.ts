@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { randomBytes } from "crypto";
 import {
   Args,
   CLValue,
@@ -13,7 +14,6 @@ import {
   PrivateKey,
   PublicKey,
   SessionBuilder,
-  StoredContractByHash,
   StoredVersionedContractByHash,
   Timestamp,
   Transaction,
@@ -44,6 +44,7 @@ export interface CasperTokenDeployResult {
   explorerUrl: string;
   status: "Deployed" | "Submitted";
   pendingReason?: string;
+  packageKeyName?: string;   // odra_cfg_package_hash_key_name actually used for this install (unique per deploy)
 }
 
 const TOKEN_COUPON_INSTALL_ARG_NAMES = [
@@ -86,9 +87,19 @@ interface NormalizedInstallArgs {
   packageKeyName: string;
 }
 
-function buildAssetPackageKey(prefix: "token_coupon" | "identity_registry", assetId: string) {
+function buildAssetPackageKey(prefix: "token_coupon" | "identity_registry", assetId: string, uniqueSuffix?: string) {
   const sanitizedAssetId = assetId.replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 32) || prefix;
-  return `${prefix}_${sanitizedAssetId}`;
+  const base = `${prefix}_${sanitizedAssetId}`;
+  return uniqueSuffix ? `${base}_${uniqueSuffix}` : base;
+}
+
+/** Short random hex suffix so every fresh install gets its own
+ *  odra_cfg_package_hash_key_name, even when re-deploying the same assetId.
+ *  Without this, retrying an install after a failed/partial deploy reuses the
+ *  same named key and Odra reverts with ExecutionError::CannotOverrideKeys
+ *  (raw Casper user error 64641). */
+function generatePackageKeySuffix(): string {
+  return randomBytes(4).toString("hex");
 }
 
 function getInstallPaymentAmountMotes(): string {
@@ -142,7 +153,7 @@ function normalizeInstallArgs(input: CasperTokenDeployInput, fallbackMintAuthori
   }
   PublicKey.fromHex(mintAuthorityPublicKey);
 
-  const packageKeyName = buildAssetPackageKey("token_coupon", assetId);
+  const packageKeyName = buildAssetPackageKey("token_coupon", assetId, generatePackageKeySuffix());
 
   return {
     assetId,
@@ -162,7 +173,7 @@ function normalizeInstallArgs(input: CasperTokenDeployInput, fallbackMintAuthori
 function buildTokenCouponInstallCallArgs(input: NormalizedInstallArgs): Args {
   const argSpecs = [
     { name: "odra_cfg_is_upgrade", value: CLValue.newCLValueBool(false) },
-    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(true) },
     { name: "odra_cfg_allow_key_override", value: CLValue.newCLValueBool(false) },
     { name: "odra_cfg_package_hash_key_name", value: CLValue.newCLString(input.packageKeyName) },
     { name: "asset_id", value: CLValue.newCLString(input.assetId) },
@@ -230,7 +241,7 @@ function resolveIdentityRegistryWasmPath() {
 function buildIdentityRegistryInstallCallArgs(assetId: string): Args {
   const argSpecs = [
     { name: "odra_cfg_is_upgrade", value: CLValue.newCLValueBool(false) },
-    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(true) },
     { name: "odra_cfg_allow_key_override", value: CLValue.newCLValueBool(false) },
     { name: "odra_cfg_package_hash_key_name", value: CLValue.newCLString(buildAssetPackageKey("identity_registry", assetId)) },
   ] as const;
@@ -243,6 +254,20 @@ function buildIdentityRegistryInstallCallArgs(assetId: string): Args {
       `IdentityRegistry install arg schema mismatch. missing=[${missingNames.join(", ")}], extra=[${extraNames.join(", ")}]`
     );
   }
+
+  return Args.fromNamedArgs(argSpecs.map((arg) => new NamedArg(arg.name, arg.value)));
+}
+
+/** Same call args as install, but with odra_cfg_is_upgrade=true so Odra runs the
+ *  in-place upgrade path against the existing package hash instead of installing
+ *  a brand-new package. */
+function buildIdentityRegistryUpgradeCallArgs(assetId: string): Args {
+  const argSpecs = [
+    { name: "odra_cfg_is_upgrade", value: CLValue.newCLValueBool(true) },
+    { name: "odra_cfg_is_upgradable", value: CLValue.newCLValueBool(true) },
+    { name: "odra_cfg_allow_key_override", value: CLValue.newCLValueBool(false) },
+    { name: "odra_cfg_package_hash_key_name", value: CLValue.newCLString(buildAssetPackageKey("identity_registry", assetId)) },
+  ] as const;
 
   return Args.fromNamedArgs(argSpecs.map((arg) => new NamedArg(arg.name, arg.value)));
 }
@@ -609,6 +634,7 @@ export interface PrepareDeployResult {
   deployHash: string;
   signerPublicKey: string;
   paymentMotes: string;
+  packageKeyName?: string;   // odra_cfg_package_hash_key_name actually used for this install (unique per deploy)
 }
 
 export interface PrepareCasperIdentityRegistryDeployInput {
@@ -650,7 +676,7 @@ export function prepareCasperTokenDeploy(input: PrepareDeployInput): PrepareDepl
   const deployHash = hashToHex((deploy as unknown as { hash?: unknown }).hash);
   const deployJson = Deploy.toJSON(deploy) as Record<string, unknown>;
 
-  return { deployJson, deployHash, signerPublicKey: input.signerPublicKey, paymentMotes: paymentAmount };
+  return { deployJson, deployHash, signerPublicKey: input.signerPublicKey, paymentMotes: paymentAmount, packageKeyName: normalizedInput.packageKeyName };
 }
 
 export function prepareCasperIdentityRegistryDeploy(input: PrepareCasperIdentityRegistryDeployInput): PrepareDeployResult {
@@ -684,6 +710,48 @@ export function prepareCasperIdentityRegistryDeploy(input: PrepareCasperIdentity
   return { deployJson, deployHash, signerPublicKey, paymentMotes: paymentAmount };
 }
 
+export interface PrepareCasperIdentityRegistryUpgradeDeployInput {
+  signerPublicKey: string;
+  assetId: string;
+}
+
+/** Re-installs the identity-registry WASM against the SAME package_hash_key_name
+ *  with odra_cfg_is_upgrade=true, triggering Odra's in-place contract upgrade path
+ *  instead of creating a brand-new package. Requires the original install to have
+ *  been done with odra_cfg_is_upgradable=true. */
+export function prepareCasperIdentityRegistryUpgradeDeploy(
+  input: PrepareCasperIdentityRegistryUpgradeDeployInput,
+): PrepareDeployResult {
+  const wasmPath = resolveIdentityRegistryWasmPath();
+  const chainName = process.env.CASPER_CHAIN_NAME ?? DEFAULT_CHAIN_NAME;
+  const paymentAmount = process.env.CASPER_IDENTITY_REGISTRY_INSTALL_PAYMENT ?? DEFAULT_INSTALL_PAYMENT_MOTES;
+  const signerPublicKey = input.signerPublicKey.trim();
+  const assetId = (input.assetId ?? "").trim();
+
+  if (!signerPublicKey) {
+    throw new Error("signerPublicKey is required");
+  }
+  if (!assetId) {
+    throw new Error("assetId is required");
+  }
+
+  const wasmBytes = fs.readFileSync(wasmPath);
+  const callArgs = buildIdentityRegistryUpgradeCallArgs(assetId);
+
+  const session = ExecutableDeployItem.newModuleBytes(wasmBytes, callArgs);
+  const payment = ExecutableDeployItem.standardPayment(paymentAmount);
+  const header = DeployHeader.default();
+  header.chainName = chainName;
+  header.account = PublicKey.fromHex(signerPublicKey);
+  header.timestamp = new Timestamp(new Date(Date.now() - 30_000));
+
+  const deploy = Deploy.makeDeploy(header, payment, session);
+  const deployHash = hashToHex((deploy as unknown as { hash?: unknown }).hash);
+  const deployJson = Deploy.toJSON(deploy) as Record<string, unknown>;
+
+  return { deployJson, deployHash, signerPublicKey, paymentMotes: paymentAmount };
+}
+
 export function prepareCasperKycWhitelistDeploy(input: PrepareCasperKycWhitelistDeployInput): PrepareDeployResult {
   const contractHashStr = input.identityRegistryHash?.trim() || process.env.CASPER_IDENTITY_REGISTRY_HASH?.trim();
   const normalizedIdentityRegistryRef = contractHashStr
@@ -692,7 +760,6 @@ export function prepareCasperKycWhitelistDeploy(input: PrepareCasperKycWhitelist
   const normalizedIdentityRegistryRaw = normalizedIdentityRegistryRef
     ? normalizedIdentityRegistryRef.replace(/^(?:contract-|hash-)/i, "").toLowerCase()
     : "";
-  const useVersionedPackageCall = normalizedIdentityRegistryRef.toLowerCase().startsWith("hash-");
   const chainName = process.env.CASPER_CHAIN_NAME ?? DEFAULT_CHAIN_NAME;
   const paymentAmount = process.env.CASPER_KYC_PAYMENT ?? "5000000000";
 
@@ -723,20 +790,16 @@ export function prepareCasperKycWhitelistDeploy(input: PrepareCasperKycWhitelist
     new NamedArg("kyc_expiry", CLValue.newCLUint64(String(Math.floor(kycExpiry)))),
   ]);
 
+  // Odra installs always record the *package* hash (via odra_cfg_package_hash_key_name),
+  // never a direct contract-entity hash, so this must always be a versioned/package call —
+  // calling StoredContractByHash against a package hash fails with
+  // "RPC -32008: no such contract at hash".
   const session = new ExecutableDeployItem();
-  if (useVersionedPackageCall) {
-    session.storedVersionedContractByHash = new StoredVersionedContractByHash(
-      ContractHash.fromJSON(normalizedIdentityRegistryRaw),
-      "upsert_investor",
-      callArgs,
-    );
-  } else {
-    session.storedContractByHash = new StoredContractByHash(
-      ContractHash.fromJSON(normalizedIdentityRegistryRaw),
-      "upsert_investor",
-      callArgs,
-    );
-  }
+  session.storedVersionedContractByHash = new StoredVersionedContractByHash(
+    ContractHash.fromJSON(normalizedIdentityRegistryRaw),
+    "upsert_investor",
+    callArgs,
+  );
 
   const payment = ExecutableDeployItem.standardPayment(paymentAmount);
   const header = DeployHeader.default();
@@ -755,6 +818,35 @@ export interface BroadcastDeployInput {
   deployJson: Record<string, unknown>;
   signatureHex: string;      // from CasperWalletProvider.sign()
   signerPublicKey: string;   // wallet public key hex
+  packageKeyName?: string;   // odra_cfg_package_hash_key_name used at install time; propagated into the result so
+                             // deployments.json can look up the real on-chain named key later instead of guessing one.
+}
+
+export function getServerSignerPublicKeyHex(): string {
+  return getPrivateKey().publicKey.toHex();
+}
+
+export function signDeployJsonWithServerKey(deployJson: Record<string, unknown>): {
+  signerPublicKey: string;
+  signatureHex: string;
+} {
+  const privateKey = getPrivateKey();
+  const signerPublicKey = privateKey.publicKey.toHex();
+  const deploy = Deploy.fromJSON(deployJson);
+  deploy.sign(privateKey);
+  const signed = Deploy.toJSON(deploy) as {
+    approvals?: Array<{ signer?: string; signature?: string }>;
+  };
+
+  const signatureHex = signed.approvals?.[0]?.signature?.trim();
+  if (!signatureHex) {
+    throw new Error("Failed to sign deploy with server key");
+  }
+
+  return {
+    signerPublicKey,
+    signatureHex,
+  };
 }
 
 export interface CasperTokenMintInput {
@@ -793,7 +885,10 @@ export async function mintCasperTokenCoupon(input: CasperTokenMintInput): Promis
   ]);
 
   const session = new ExecutableDeployItem();
-  session.storedContractByHash = new StoredContractByHash(
+  // Same reasoning as prepareCasperKycWhitelistDeploy: the persisted TokenCoupon
+  // contractHash is actually the Odra package hash, so it must be called via
+  // StoredVersionedContractByHash, not StoredContractByHash.
+  session.storedVersionedContractByHash = new StoredVersionedContractByHash(
     ContractHash.fromJSON(contractHashJson),
     "subscribe",
     callArgs,
@@ -897,6 +992,7 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
             deployHash: finalHash,
             explorerUrl: casperExplorerTransactionUrl(finalHash),
             status: "Submitted",
+            packageKeyName: input.packageKeyName,
           };
         }
 
@@ -910,11 +1006,12 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
             contractHash: extractContractHash(waitResult),
             explorerUrl: casperExplorerTransactionUrl(finalHash),
             status: "Deployed",
+            packageKeyName: input.packageKeyName,
           };
         } catch (waitErr) {
           const msg = waitErr instanceof Error ? waitErr.message : "Timed out";
           if (/timeout|timed out|not found/i.test(msg)) {
-            return { deployHash: finalHash, explorerUrl: casperExplorerTransactionUrl(finalHash), status: "Submitted", pendingReason: msg };
+            return { deployHash: finalHash, explorerUrl: casperExplorerTransactionUrl(finalHash), status: "Submitted", pendingReason: msg, packageKeyName: input.packageKeyName };
           }
           throw waitErr;
         }
@@ -961,6 +1058,7 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
             contractHash: extractContractHash(waitResult),
             explorerUrl: casperExplorerDeployUrl(finalHash),
             status: "Deployed",
+            packageKeyName: input.packageKeyName,
           };
         } catch (waitErr) {
           const msg = waitErr instanceof Error ? waitErr.message : "Timed out";
@@ -970,6 +1068,7 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
             explorerUrl: casperExplorerDeployUrl(finalHash),
             status: "Submitted",
             pendingReason: msg,
+            packageKeyName: input.packageKeyName,
           };
         }
       }
@@ -978,6 +1077,7 @@ export async function broadcastSignedDeploy(input: BroadcastDeployInput): Promis
         deployHash: finalHash,
         explorerUrl: casperExplorerDeployUrl(finalHash),
         status: "Submitted",
+        packageKeyName: input.packageKeyName,
       };
     } catch (broadcastErr) {
       lastError = broadcastErr;

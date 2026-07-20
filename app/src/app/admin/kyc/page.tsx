@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { connectCasperWallet, signCasperDeploy } from "@/lib/casper-wallet";
 import { isCasperAddressLike } from "@/lib/casper-address";
+import ComplianceCredentialCard from "@/components/ComplianceCredentialCard";
+import ContractVersionBadge from "@/components/ContractVersionBadge";
+import DataBoundaryPanel from "@/components/DataBoundaryPanel";
 
 type AppStatus = "pending" | "reviewing" | "ai_scored" | "approved" | "rejected";
 
@@ -44,10 +47,15 @@ interface KYCApp {
   credentialCommitment?: string | null;
   nullifierHash?: string | null;
   proofHash?: string | null;
+  zkProofScheme?: string | null;
+  zkCircuitId?: string | null;
+  proofVerified?: boolean | null;
+  executionMode?: "manual" | "auto" | null;
   monitoringStatus?: string | null;
   lastScreenedAt?: string | null;
   agentReason?: string | null;
   kycExpiry?: number | null;
+  agentActionLog?: Array<{ ts: string; action: string; mode: "manual" | "auto" | "cron"; reason: string }>;
 }
 
 interface KycChainConfig {
@@ -64,6 +72,45 @@ interface ApprovedAssetOption {
   assetName: string;
   issuer: string;
   identityRegistryHash?: string | null;
+  contractVersion?: string | null;
+  isUpgradable?: boolean | null;
+}
+
+interface AutoPolicySnapshot {
+  enabled: boolean;
+  killSwitch: boolean;
+  dryRun: boolean;
+  requireProofVerified: boolean;
+  minAiScoreUpdate: number;
+  maxRiskBandUpdate: number;
+  idAllowlistSize: number;
+  walletAllowlistSize: number;
+}
+
+interface LastAutoExecution {
+  applicationId: string;
+  action: "update" | "revoke";
+  attemptedAt: string;
+  outcome: "success" | "blocked" | "error";
+  status?: string | null;
+  deployHash?: string | null;
+}
+
+interface OperationFeedback {
+  level: "success" | "warning" | "error" | "info";
+  title: string;
+  detail: string;
+  timestamp: string;
+  reasons?: string[];
+}
+
+interface SchedulerState {
+  lastRunAt: string;
+  scanned: number;
+  executed: number;
+  blocked: number;
+  skipped: number;
+  errors: number;
 }
 
 const SEED_APPS: KYCApp[] = [];
@@ -110,16 +157,16 @@ export default function AdminKYCPage() {
   const [loading, setLoading] = useState(true);
   const [chainConfig, setChainConfig] = useState<KycChainConfig | null>(null);
   const [approvedAssets, setApprovedAssets] = useState<ApprovedAssetOption[]>([]);
-  const [monitoring, setMonitoring] = useState(false);
-  const [agentBusyAction, setAgentBusyAction] = useState<"analyze" | "update" | "revoke" | null>(null);
+  const [agentBusyAction, setAgentBusyAction] = useState<"analyze" | "update" | "revoke" | "auto-update" | "auto-revoke" | null>(null);
   const [agentMessage, setAgentMessage] = useState<string | null>(null);
-  const [agentQueue, setAgentQueue] = useState<Array<{ id: string; action: string; reason: string; confidence: number; riskBand: number }>>([]);
-
-  function shortHash(value: string | null | undefined) {
-    if (!value) return "-";
-    if (value.length <= 16) return value;
-    return `${value.slice(0, 10)}...${value.slice(-8)}`;
-  }
+  const [autoPolicySnapshot, setAutoPolicySnapshot] = useState<AutoPolicySnapshot | null>(null);
+  const [autoBlockReasons, setAutoBlockReasons] = useState<string[]>([]);
+  const [lastAutoExecution, setLastAutoExecution] = useState<LastAutoExecution | null>(null);
+  const [operationFeedback, setOperationFeedback] = useState<OperationFeedback | null>(null);
+  const [quickAction, setQuickAction] = useState<"manual-update" | "manual-revoke" | "auto-update" | "auto-revoke" | "reject">("auto-update");
+  const [schedulerState, setSchedulerState] = useState<SchedulerState | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
 
   async function refreshApplications(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -143,6 +190,27 @@ export default function AdminKYCPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Poll the autonomous scheduler's last-run summary (read-only — does not
+  // itself trigger a scan). Shows that continuous monitoring is running
+  // without any human clicking a button.
+  useEffect(() => {
+    let cancelled = false;
+    const loadSchedulerState = () => {
+      fetch("/api/agent/kyc/scheduler-state", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!cancelled) setSchedulerState(data.state ?? null);
+        })
+        .catch(() => { /* ignore */ });
+    };
+    loadSchedulerState();
+    const interval = setInterval(loadSchedulerState, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -157,13 +225,15 @@ export default function AdminKYCPage() {
         const options = submissions
           .filter((submission) => submission.id && submission.status === "Approved")
           .map((submission) => {
-            const deployment = (deployments?.[submission.id as string] ?? {}) as { assetId?: string; assetName?: string; identityRegistry?: { contractHash?: string | null } };
+            const deployment = (deployments?.[submission.id as string] ?? {}) as { assetId?: string; assetName?: string; identityRegistry?: { contractHash?: string | null; contractVersion?: string | null; isUpgradable?: boolean | null } };
             return {
               deploymentId: submission.id as string,
               assetId: deployment.assetId ?? "",
               assetName: deployment.assetName ?? submission.asset ?? submission.id ?? "",
               issuer: submission.issuer ?? "",
               identityRegistryHash: deployment.identityRegistry?.contractHash ?? null,
+              contractVersion: deployment.identityRegistry?.contractVersion ?? null,
+              isUpgradable: deployment.identityRegistry?.isUpgradable ?? null,
             } satisfies ApprovedAssetOption;
           })
           .filter((asset) => Boolean(asset.identityRegistryHash));
@@ -390,6 +460,91 @@ export default function AdminKYCPage() {
     await persistPatch(app.id, rejectPatch);
   }
 
+  /** Demo "Upgrade Registry" flow — signs + broadcasts an in-place Odra
+   *  contract upgrade (odra_cfg_is_upgrade=true) against the already-deployed
+   *  IdentityRegistry package, then persists the new contractVersion so the
+   *  ContractVersionBadge flips from v1 → v2. Makes the Track-4 "upgradable
+   *  smart contract" capability demonstrable, not just configured. */
+  async function handleUpgradeRegistry() {
+    const target = approvedAssets.find((item) => item.deploymentId === selected?.assetDeploymentId) ?? approvedAssets[0];
+    if (!target) {
+      setUpgradeMessage("No approved asset with a deployed Identity Registry found.");
+      return;
+    }
+    setUpgrading(true);
+    setUpgradeMessage(null);
+    try {
+      const { publicKey } = await connectCasperWallet();
+
+      const prepRes = await fetch("/api/tokenize/prepare-identity-upgrade-deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signerPublicKey: publicKey, assetId: target.assetId, id: target.deploymentId }),
+      });
+      const prepData = await prepRes.json();
+      if (!prepRes.ok || prepData.error) {
+        throw new Error(prepData.error ?? "Failed to prepare upgrade deploy");
+      }
+
+      const signature = await signCasperDeploy(prepData.deployJson, publicKey);
+
+      const broadRes = await fetch("/api/tokenize/broadcast-identity-upgrade-deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deployToken: prepData.deployToken,
+          signerPublicKey: publicKey,
+          signatureHex: signature.signatureHex,
+          id: target.deploymentId,
+          assetName: target.assetName,
+        }),
+      });
+      const broadData = await broadRes.json();
+      if (!broadRes.ok || broadData.error) {
+        throw new Error(broadData.error ?? "Upgrade broadcast failed");
+      }
+
+      await fetch("/api/tokenize/deployments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: target.deploymentId,
+          identityRegistry: {
+            contractHash: broadData.contractHash ?? target.identityRegistryHash,
+            contractVersion: broadData.contractVersion ?? "v2",
+            isUpgradable: true,
+            deployHash: broadData.deployHash,
+            status: broadData.status,
+            explorerUrl: broadData.explorerUrl,
+          },
+        }),
+      });
+
+      setApprovedAssets((prev) =>
+        prev.map((item) =>
+          item.deploymentId === target.deploymentId
+            ? { ...item, contractVersion: broadData.contractVersion ?? "v2", isUpgradable: true }
+            : item
+        )
+      );
+      setUpgradeMessage(`Upgrade broadcast — deploy ${broadData.deployHash ?? "pending"}`);
+    } catch (err) {
+      setUpgradeMessage(err instanceof Error ? err.message : "Upgrade failed");
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  /** Merged "① Analyze this application" action — runs the deterministic compliance
+   *  score first (so the AI recommendation below has a fresh aiScore to
+   *  reason about), then asks the agent for a recommendation. Sequential
+   *  awaits ensure the score is persisted server-side before the analyze
+   *  call reads the application record back. */
+  async function analyzeAndScore(app: KYCApp) {
+    await runAIScore(app);
+    await analyzeWithAgent(app);
+  }
+
   async function analyzeWithAgent(app: KYCApp) {
     setAgentBusyAction("analyze");
     setAgentMessage(null);
@@ -407,29 +562,22 @@ export default function AdminKYCPage() {
         updateApp(app.id, data.application as Partial<KYCApp>);
       }
       setAgentMessage(`Agent analyzed ${app.id}: ${data.recommendation?.action ?? "done"}`);
+      setOperationFeedback({
+        level: "info",
+        title: "Analyze Completed",
+        detail: `Application ${app.id} analyzed. Recommended action: ${String(data.recommendation?.action ?? "n/a")}.`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (err) {
       setAgentMessage(err instanceof Error ? err.message : "Agent analyze failed");
+      setOperationFeedback({
+        level: "error",
+        title: "Analyze Failed",
+        detail: err instanceof Error ? err.message : "Agent analyze failed",
+        timestamp: new Date().toISOString(),
+      });
     } finally {
       setAgentBusyAction(null);
-    }
-  }
-
-  async function runAgentMonitor() {
-    setMonitoring(true);
-    setAgentMessage(null);
-    try {
-      const res = await fetch("/api/agent/kyc/monitor", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "Failed to run agent monitor");
-      }
-      setAgentQueue((data.queue ?? []) as Array<{ id: string; action: string; reason: string; confidence: number; riskBand: number }>);
-      setAgentMessage(`Agent monitor scanned ${data.scanned ?? 0} records and found ${data.actionable ?? 0} actionable items.`);
-      await refreshApplications();
-    } catch (err) {
-      setAgentMessage(err instanceof Error ? err.message : "Agent monitor failed");
-    } finally {
-      setMonitoring(false);
     }
   }
 
@@ -476,19 +624,143 @@ export default function AdminKYCPage() {
       }
 
       setAgentMessage(`Credential ${action} transaction submitted: ${broadData.txHash ?? broadData.deployHash ?? "unknown hash"}`);
+      setOperationFeedback({
+        level: "success",
+        title: `Manual ${action === "update" ? "Update" : "Revoke"} Submitted`,
+        detail: `Tx: ${String(broadData.txHash ?? broadData.deployHash ?? "unknown hash")}`,
+        timestamp: new Date().toISOString(),
+      });
       await refreshApplications();
     } catch (err) {
       setApproveError(err instanceof Error ? err.message : `Credential ${action} failed`);
+      setOperationFeedback({
+        level: "error",
+        title: `Manual ${action === "update" ? "Update" : "Revoke"} Failed`,
+        detail: err instanceof Error ? err.message : `Credential ${action} failed`,
+        timestamp: new Date().toISOString(),
+      });
     } finally {
       setAgentBusyAction(null);
     }
   }
 
-  const approvalBlockedReason = !selected
+  async function executeAgentAutoAction(app: KYCApp, action: "update" | "revoke") {
+    setAgentBusyAction(action === "update" ? "auto-update" : "auto-revoke");
+    setApproveError(null);
+    setAgentMessage(null);
+    setAutoBlockReasons([]);
+    try {
+      if (!chainConfig?.identityRegistryConfigured) {
+        throw new Error(chainConfig?.error ?? "Casper Identity Registry is not configured.");
+      }
+
+      const res = await fetch("/api/agent/kyc/auto-execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: app.id,
+          action,
+          assetDeploymentId: app.assetDeploymentId?.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      setAutoPolicySnapshot((data.policy ?? null) as AutoPolicySnapshot | null);
+      setAutoBlockReasons(Array.isArray(data.reasons) ? data.reasons.filter((item: unknown): item is string => typeof item === "string") : []);
+      if (!res.ok) {
+        setLastAutoExecution({
+          applicationId: app.id,
+          action,
+          attemptedAt: new Date().toISOString(),
+          outcome: Array.isArray(data.reasons) && data.reasons.length > 0 ? "blocked" : "error",
+          status: typeof data.status === "string" ? data.status : null,
+          deployHash: typeof data.deployHash === "string" ? data.deployHash : null,
+        });
+        setOperationFeedback({
+          level: Array.isArray(data.reasons) && data.reasons.length > 0 ? "warning" : "error",
+          title: "Auto Execute Blocked/Failed",
+          detail: String(data.error ?? `Failed to auto ${action} credential`),
+          timestamp: new Date().toISOString(),
+          reasons: Array.isArray(data.reasons)
+            ? data.reasons.filter((item: unknown): item is string => typeof item === "string")
+            : [],
+        });
+        throw new Error(data.error ?? `Failed to auto ${action} credential`);
+      }
+
+      setLastAutoExecution({
+        applicationId: app.id,
+        action,
+        attemptedAt: new Date().toISOString(),
+        outcome: "success",
+        status: typeof data.status === "string" ? data.status : null,
+        deployHash: typeof data.deployHash === "string" ? data.deployHash : null,
+      });
+
+      setOperationFeedback({
+        level: "success",
+        title: `Auto ${action === "update" ? "Update" : "Revoke"} ${data.dryRun ? "Dry-Run" : "Submitted"}`,
+        detail: `Deploy: ${String(data.deployHash ?? "unknown hash")} · Status: ${String(data.status ?? "Submitted")}`,
+        timestamp: new Date().toISOString(),
+      });
+
+      setAgentMessage(
+        `Auto ${action} submitted: ${data.deployHash ?? "unknown hash"} (${data.status ?? "Submitted"})`,
+      );
+      await refreshApplications();
+    } catch (err) {
+      setApproveError(err instanceof Error ? err.message : `Auto credential ${action} failed`);
+    } finally {
+      setAgentBusyAction(null);
+    }
+  }
+
+  const approvalBlockedReason = !selected || chainConfig === null
     ? null
-    : !chainConfig?.identityRegistryConfigured
-        ? (chainConfig?.error ?? "Casper Identity Registry is not configured.")
+    : !chainConfig.identityRegistryConfigured
+        ? (chainConfig.error ?? "Casper Identity Registry is not configured.")
         : null;
+
+  const quickActionDisabled =
+    !selected
+    || agentBusyAction !== null
+    || (quickAction !== "reject" && (!isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)));
+
+  const quickActionLabel =
+    quickAction === "manual-update"
+      ? "Execute Manual Update"
+      : quickAction === "manual-revoke"
+        ? "Execute Manual Revoke"
+        : quickAction === "auto-update"
+          ? "Execute Auto Update"
+          : quickAction === "auto-revoke"
+            ? "Execute Auto Revoke"
+            : "Reject Application";
+
+  async function runQuickAction(app: KYCApp) {
+    if (quickAction === "manual-update") {
+      await executeAgentCredentialAction(app, "update");
+      return;
+    }
+    if (quickAction === "manual-revoke") {
+      await executeAgentCredentialAction(app, "revoke");
+      return;
+    }
+    if (quickAction === "auto-update") {
+      await executeAgentAutoAction(app, "update");
+      return;
+    }
+    if (quickAction === "auto-revoke") {
+      await executeAgentAutoAction(app, "revoke");
+      return;
+    }
+    await rejectApp(app);
+    setOperationFeedback({
+      level: "warning",
+      title: "Application Rejected",
+      detail: `Application ${app.id} marked as rejected.`,
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   return (
     <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -578,6 +850,87 @@ export default function AdminKYCPage() {
             </p>
           </div>
 
+          {(autoPolicySnapshot || lastAutoExecution) && (
+            <div className="sticky top-3 z-20 rounded-lg px-4 py-3 mb-5" style={{ background: "#f8fafc", border: "1px solid rgba(14,116,144,0.22)", boxShadow: "0 6px 14px rgba(2,6,23,0.08)" }}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-700">Auto-Execute Policy Snapshot</div>
+                  {autoPolicySnapshot ? (
+                    <div className="text-[11px] text-slate-700 mt-1">
+                      Enabled {autoPolicySnapshot.enabled ? "Yes" : "No"} · Kill Switch {autoPolicySnapshot.killSwitch ? "On" : "Off"} · Dry Run {autoPolicySnapshot.dryRun ? "On" : "Off"} · Min Score {autoPolicySnapshot.minAiScoreUpdate} · Max Risk Band {autoPolicySnapshot.maxRiskBandUpdate}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-500 mt-1">No policy snapshot received yet.</div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last Auto-Execute</div>
+                  {lastAutoExecution ? (
+                    <>
+                      <div className="text-[11px] text-slate-700 mt-1">
+                        {lastAutoExecution.applicationId} · {lastAutoExecution.action.toUpperCase()} · {lastAutoExecution.outcome.toUpperCase()}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {new Date(lastAutoExecution.attemptedAt).toLocaleString("en-GB")}
+                        {lastAutoExecution.status ? ` · ${lastAutoExecution.status}` : ""}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[11px] text-slate-500 mt-1">No execution recorded yet.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg px-4 py-3 mb-5" style={{ background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.20)" }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Autonomous Continuous Monitoring</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">No manual click required — Vercel Cron / local scheduler calls this on an interval.</div>
+              </div>
+              {schedulerState ? (
+                <div className="text-right text-[11px] text-slate-700">
+                  <div>
+                    Last run: <span className="font-semibold">{new Date(schedulerState.lastRunAt).toLocaleString("en-GB")}</span>
+                  </div>
+                  <div className="text-slate-500 mt-0.5">
+                    Scanned {schedulerState.scanned} · Executed {schedulerState.executed} · Blocked {schedulerState.blocked} · Skipped {schedulerState.skipped} · Errors {schedulerState.errors}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-slate-500">No autonomous run recorded yet.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg px-4 py-3 mb-5" style={{ background: "rgba(29,78,216,0.05)", border: "1px solid rgba(29,78,216,0.20)" }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Compliance Contract · Upgradable</div>
+                <div className="mt-1.5">
+                  <ContractVersionBadge
+                    version={approvedAssets.find((item) => item.deploymentId === selected?.assetDeploymentId)?.contractVersion ?? approvedAssets[0]?.contractVersion}
+                    isUpgradable={approvedAssets.find((item) => item.deploymentId === selected?.assetDeploymentId)?.isUpgradable ?? approvedAssets[0]?.isUpgradable}
+                  />
+                </div>
+                {upgradeMessage && <div className="text-[10px] text-slate-500 mt-1.5">{upgradeMessage}</div>}
+              </div>
+              <button
+                onClick={() => void handleUpgradeRegistry()}
+                disabled={upgrading || approvedAssets.length === 0}
+                className="text-[11px] font-semibold rounded-lg px-3.5 py-2 transition-colors disabled:opacity-50"
+                style={{ color: "#1d4ed8", background: "rgba(29,78,216,0.10)", border: "1px solid rgba(29,78,216,0.3)" }}
+              >
+                {upgrading ? "Upgrading…" : "Upgrade Registry (v1→v2)"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <DataBoundaryPanel />
+          </div>
+
           {approvalBlockedReason && (
             <div className="rounded-lg px-4 py-3 text-xs mb-5" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.20)" }}>
               <div className="font-semibold text-red-700 uppercase tracking-wide text-[10px] mb-1">Casper KYC Contract Not Ready</div>
@@ -638,30 +991,35 @@ export default function AdminKYCPage() {
                   )}
                 </div>
 
-                <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Privacy Credential Snapshot</div>
-                  <div className="space-y-1.5 text-[11px]">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">Commitment</span>
-                      <code className="text-blue-600 font-mono">{shortHash(selected.credentialCommitment)}</code>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">Nullifier</span>
-                      <code className="text-slate-700 font-mono">{shortHash(selected.nullifierHash)}</code>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">Proof Hash</span>
-                      <code className="text-slate-700 font-mono">{shortHash(selected.proofHash)}</code>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-slate-500">KYC Expiry</span>
-                      <span className="text-slate-700">{selected.kycExpiry ? new Date(selected.kycExpiry * 1000).toLocaleDateString("en-GB") : "-"}</span>
-                    </div>
-                    <div className="text-slate-500 leading-relaxed pt-1">
-                      {selected.agentReason ?? "No agent decision recorded yet."}
+                {selected.agentActionLog && selected.agentActionLog.length > 0 && (
+                  <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Agent Action Timeline</div>
+                    <div className="space-y-2 text-[11px] max-h-56 overflow-y-auto pr-1">
+                      {[...selected.agentActionLog].reverse().map((entry, idx) => {
+                        const modeMeta = entry.mode === "cron"
+                          ? { label: "AUTO · CRON", color: "#16a34a", bg: "rgba(22,163,74,0.10)" }
+                          : entry.mode === "auto"
+                            ? { label: "AUTO", color: "#0891b2", bg: "rgba(8,145,178,0.10)" }
+                            : { label: "MANUAL", color: "#64748b", bg: "rgba(100,116,139,0.10)" };
+                        return (
+                          <div key={`${entry.ts}-${idx}`} className="flex items-start gap-2 pb-2" style={{ borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                              style={{ color: modeMeta.color, background: modeMeta.bg }}
+                            >
+                              {modeMeta.label}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-slate-700 font-medium">{entry.action}</div>
+                              <div className="text-slate-500">{entry.reason}</div>
+                              <div className="text-slate-400 text-[10px]">{new Date(entry.ts).toLocaleString("en-GB")}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
+                )}
 
                 <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold mb-2">Target Asset Issuance</div>
@@ -831,109 +1189,227 @@ export default function AdminKYCPage() {
                   />
                 </div>
 
+                <ComplianceCredentialCard
+                  status={selected.status}
+                  monitoringStatus={selected.monitoringStatus}
+                  riskBand={selected.riskBand}
+                  credentialCommitment={selected.credentialCommitment}
+                  nullifierHash={selected.nullifierHash}
+                  proofHash={selected.proofHash}
+                  zkProofScheme={selected.zkProofScheme}
+                  zkCircuitId={selected.zkCircuitId}
+                  proofVerified={selected.proofVerified}
+                  executionMode={selected.executionMode}
+                  kycExpiry={selected.kycExpiry}
+                  agentReason={selected.agentReason}
+                />
+
                 {/* Action buttons */}
                 {selected.status !== "approved" && selected.status !== "rejected" && (
                   <div className="rounded-xl px-5 py-4 space-y-3" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Actions</div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => void runAgentMonitor()}
-                        disabled={monitoring}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", color: "#1d4ed8" }}>
-                        {monitoring ? "Monitoring..." : "Run Agent Monitor"}
-                      </button>
-                      <button
-                        onClick={() => void analyzeWithAgent(selected)}
-                        disabled={agentBusyAction !== null}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "rgba(124,58,237,0.10)", border: "1px solid rgba(124,58,237,0.25)", color: "#6d28d9" }}>
-                        {agentBusyAction === "analyze" ? "Analyzing..." : "Analyze With Agent"}
-                      </button>
-                      <button
-                        onClick={() => void runAIScore(selected)}
-                        disabled={scoring || selected.status === "reviewing"}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "linear-gradient(135deg, #5b21b6 0%, #1d4ed8 100%)" }}>
-                        {scoring ? "Scoring..." : selected.aiScore !== null ? "↺ Re-run AI Score" : "▶ Run AI Compliance Score"}
-                      </button>
-                      <button
-                        onClick={() => void approveApp(selected)}
-                        disabled={approving || selected.aiScore === null || selected.aiScore < 70 || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "#16a34a" }}>
-                        {approving ? "Waiting for Casper Wallet..." : "✓ Approve & Whitelist"}
-                      </button>
-                      <button
-                        onClick={() => void executeAgentCredentialAction(selected, "update")}
-                        disabled={agentBusyAction !== null || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "rgba(16,185,129,0.10)", border: "1px solid rgba(16,185,129,0.25)", color: "#047857" }}>
-                        {agentBusyAction === "update" ? "Preparing Update..." : "Agent Update Credential"}
-                      </button>
-                      <button
-                        onClick={() => void executeAgentCredentialAction(selected, "revoke")}
-                        disabled={agentBusyAction !== null || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.25)", color: "#b91c1c" }}>
-                        {agentBusyAction === "revoke" ? "Preparing Revoke..." : "Agent Revoke Credential"}
-                      </button>
-                      <button
-                        onClick={() => void rejectApp(selected)}
-                        disabled={approving}
-                        className="px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90"
-                        style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#dc2626" }}>
-                        ✗ Reject Application
-                      </button>
-                    </div>
-                    {selected.aiScore !== null && selected.aiScore < 70 && (
-                      <p className="text-[11px] text-amber-600 flex items-center gap-1.5">
-                        <span>⚠</span>
-                        AI score below 70 — approval blocked per ComplianceOracle.sol gating condition.
-                      </p>
-                    )}
-                    {!isCasperAddressLike(selected.walletAddress) && (
-                      <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
-                        <span className="shrink-0">⚠</span>
-                        <span>This record still has a non-Casper wallet identifier. Update it to a Casper public key or account-hash before whitelist approval.</span>
-                      </p>
-                    )}
-                    {approvalBlockedReason && (
-                      <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
-                        <span className="shrink-0">⚠</span>
-                        <span>{approvalBlockedReason}</span>
-                      </p>
-                    )}
-                    {approveError && (
-                      <p className="text-[11px] text-red-600 flex items-start gap-1.5">
-                        <span className="shrink-0">✗</span>
-                        <span>On-chain error: {approveError}</span>
-                      </p>
-                    )}
-                    {agentMessage && (
-                      <p className="text-[11px] text-blue-700 flex items-start gap-1.5">
-                        <span className="shrink-0">i</span>
-                        <span>{agentMessage}</span>
-                      </p>
-                    )}
-                    {agentQueue.length > 0 && (
-                      <div className="rounded-lg p-3" style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.16)" }}>
-                        <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide mb-2">Agent Action Queue</div>
-                        <div className="space-y-1.5">
-                          {agentQueue.slice(0, 5).map((item) => (
-                            <div key={`${item.id}-${item.action}`} className="text-[11px] text-slate-700 leading-relaxed">
-                              <span className="font-mono text-blue-700">{item.id}</span>
-                              <span className="mx-1">·</span>
-                              <span className="font-semibold uppercase">{item.action}</span>
-                              <span className="mx-1">·</span>
-                              <span>Risk band {item.riskBand}</span>
-                              <span className="mx-1">·</span>
-                              <span>{Math.round(item.confidence * 100)}% conf.</span>
-                            </div>
-                          ))}
+
+                    {/* Plain-language "what should I click next" hint for non-expert users.
+                        Purely derived from existing state — no new data fetching. */}
+                    {(() => {
+                      const hint = selected.aiScore === null
+                        ? { text: "Recommended: click \"▶ Run AI Compliance Score\" below to score this application first.", tone: "info" as const }
+                        : selected.aiScore < 70
+                          ? { text: "Current score is below 70, so approval is blocked for now. Ask the investor to provide missing documents and run scoring again.", tone: "warning" as const }
+                          : !isCasperAddressLike(selected.walletAddress)
+                            ? { text: "Score passed, but the wallet address is not a valid Casper format. Update it to a Casper address before approval.", tone: "warning" as const }
+                            : { text: "Score passed (≥70). You can now click \"✓ Approve & Whitelist\" to complete on-chain approval.", tone: "success" as const };
+                      return (
+                        <div
+                          className="rounded-lg px-3 py-2 flex items-start gap-2"
+                          style={{
+                            background: hint.tone === "success" ? "rgba(22,163,74,0.06)" : hint.tone === "warning" ? "rgba(245,158,11,0.08)" : "rgba(59,130,246,0.06)",
+                            border: `1px solid ${hint.tone === "success" ? "rgba(22,163,74,0.20)" : hint.tone === "warning" ? "rgba(245,158,11,0.25)" : "rgba(59,130,246,0.20)"}`,
+                          }}
+                        >
+                          <span className="text-xs shrink-0">{hint.tone === "success" ? "✓" : hint.tone === "warning" ? "⚠" : "💡"}</span>
+                          <span className="text-[11px] text-slate-700 leading-relaxed">{hint.text}</span>
                         </div>
+                      );
+                    })()}
+
+                    {/* Results of the most recent action — shown above the buttons so the
+                        outcome of a click is always visible without scrolling down. */}
+                    {(operationFeedback || agentMessage || autoBlockReasons.length > 0 || autoPolicySnapshot
+                      || approveError || approvalBlockedReason || (selected.aiScore !== null && selected.aiScore < 70)
+                      || !isCasperAddressLike(selected.walletAddress)) && (
+                      <div className="space-y-2 pb-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+                        {operationFeedback && (
+                          <div
+                            className="rounded-lg p-3"
+                            style={{
+                              background:
+                                operationFeedback.level === "success"
+                                  ? "rgba(22,163,74,0.08)"
+                                  : operationFeedback.level === "warning"
+                                    ? "rgba(245,158,11,0.10)"
+                                    : operationFeedback.level === "error"
+                                      ? "rgba(239,68,68,0.08)"
+                                      : "rgba(59,130,246,0.08)",
+                              border:
+                                operationFeedback.level === "success"
+                                  ? "1px solid rgba(22,163,74,0.25)"
+                                  : operationFeedback.level === "warning"
+                                    ? "1px solid rgba(245,158,11,0.30)"
+                                    : operationFeedback.level === "error"
+                                      ? "1px solid rgba(239,68,68,0.25)"
+                                      : "1px solid rgba(59,130,246,0.25)",
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                              <span className="text-[11px] font-semibold text-slate-800">{operationFeedback.title}</span>
+                              <span className="text-[10px] text-slate-500">{new Date(operationFeedback.timestamp).toLocaleString("en-GB")}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-700 leading-relaxed">{operationFeedback.detail}</p>
+                            {operationFeedback.reasons && operationFeedback.reasons.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {operationFeedback.reasons.map((reason, idx) => (
+                                  <p key={`${reason}-${idx}`} className="text-[11px] text-amber-800">• {reason}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {agentMessage && (
+                          <p className="text-[11px] text-blue-700 flex items-start gap-1.5">
+                            <span className="shrink-0">i</span>
+                            <span>{agentMessage}</span>
+                          </p>
+                        )}
+                        {selected.aiScore !== null && selected.aiScore < 70 && (
+                          <p className="text-[11px] text-amber-600 flex items-center gap-1.5">
+                            <span>⚠</span>
+                            AI score below 70 — approval blocked per ComplianceOracle.sol gating condition.
+                          </p>
+                        )}
+                        {!isCasperAddressLike(selected.walletAddress) && (
+                          <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
+                            <span className="shrink-0">⚠</span>
+                            <span>This record still has a non-Casper wallet identifier. Update it to a Casper public key or account-hash before whitelist approval.</span>
+                          </p>
+                        )}
+                        {approvalBlockedReason && (
+                          <p className="text-[11px] text-amber-600 flex items-start gap-1.5">
+                            <span className="shrink-0">⚠</span>
+                            <span>{approvalBlockedReason}</span>
+                          </p>
+                        )}
+                        {approveError && (
+                          <p className="text-[11px] text-red-600 flex items-start gap-1.5">
+                            <span className="shrink-0">✗</span>
+                            <span>On-chain error: {approveError}</span>
+                          </p>
+                        )}
+                        {autoBlockReasons.length > 0 && (
+                          <div className="rounded-lg p-3" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.20)" }}>
+                            <div className="text-[10px] font-semibold text-red-700 uppercase tracking-wide mb-2">Auto-Execute Block Reasons</div>
+                            <div className="space-y-1">
+                              {autoBlockReasons.map((reason, index) => (
+                                <p key={`${reason}-${index}`} className="text-[11px] text-red-700 leading-relaxed">• {reason}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {autoPolicySnapshot && (
+                          <div className="rounded-lg p-3" style={{ background: "rgba(14,116,144,0.05)", border: "1px solid rgba(14,116,144,0.18)" }}>
+                            <div className="text-[10px] font-semibold text-cyan-700 uppercase tracking-wide mb-2">Auto Policy Snapshot</div>
+                            <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+                              <div>Enabled: <span className="font-semibold">{autoPolicySnapshot.enabled ? "Yes" : "No"}</span></div>
+                              <div>Kill Switch: <span className="font-semibold">{autoPolicySnapshot.killSwitch ? "On" : "Off"}</span></div>
+                              <div>Dry Run: <span className="font-semibold">{autoPolicySnapshot.dryRun ? "On" : "Off"}</span></div>
+                              <div>Require Proof: <span className="font-semibold">{autoPolicySnapshot.requireProofVerified ? "Yes" : "No"}</span></div>
+                              <div>Min AI Score: <span className="font-semibold">{autoPolicySnapshot.minAiScoreUpdate}</span></div>
+                              <div>Max Risk Band: <span className="font-semibold">{autoPolicySnapshot.maxRiskBandUpdate}</span></div>
+                              <div>ID Allowlist Size: <span className="font-semibold">{autoPolicySnapshot.idAllowlistSize}</span></div>
+                              <div>Wallet Allowlist Size: <span className="font-semibold">{autoPolicySnapshot.walletAllowlistSize}</span></div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
+
+                    {/* Button groups — laid out below the results so the outcome of the
+                        previous click stays visible while choosing the next action. */}
+                    <div className="space-y-1.5">
+                      <div>
+                        <div className="text-[9px] text-slate-400 uppercase tracking-wide font-semibold">① Analyze This Application</div>
+                        <div className="text-[10px] text-slate-400">Diagnostics and scoring only; no on-chain data changes</div>
+                      </div>
+                      <div className="flex flex-wrap items-stretch gap-3">
+                        {/* Scope: the currently selected application */}
+                        <div className="flex flex-col gap-1">
+                          <button
+                            onClick={() => void analyzeAndScore(selected)}
+                            disabled={agentBusyAction !== null || scoring || selected.status === "reviewing"}
+                            title="First compute a 0-100 compliance score, then ask AI for a recommendation (issue/update/revoke/manual review). No automatic execution."
+                            className="min-w-[150px] px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
+                            style={{ background: "linear-gradient(135deg, #5b21b6 0%, #1d4ed8 100%)" }}>
+                            {scoring
+                              ? "Scoring..."
+                              : agentBusyAction === "analyze"
+                                ? "Analyzing..."
+                                : selected.aiScore !== null
+                                  ? "↺ Re-run AI Analysis"
+                                  : "▶ Run AI Analysis"}
+                          </button>
+                            <span className="text-[9px] text-slate-400 leading-snug max-w-[220px]">Generates a 0-100 score (≥70 required for approval) and action recommendations. It will not auto-issue/revoke credentials.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div>
+                        <div className="text-[9px] text-slate-400 uppercase tracking-wide font-semibold">② Approval</div>
+                        <div className="text-[10px] text-slate-400">The only action that writes the investor wallet into the on-chain whitelist</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => void approveApp(selected)}
+                          disabled={approving || selected.aiScore === null || selected.aiScore < 70 || !isCasperAddressLike(selected.walletAddress) || Boolean(approvalBlockedReason)}
+                          title="Connect an admin wallet and sign to add this investor address to the on-chain IdentityRegistry whitelist"
+                          className="min-w-[150px] px-4 py-2 text-xs font-semibold rounded-lg text-white transition-opacity disabled:opacity-40 hover:opacity-90"
+                          style={{ background: "#16a34a" }}>
+                          {approving ? "Waiting for Casper Wallet..." : "✓ Approve & Whitelist"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 rounded-lg p-2.5" style={{ background: "rgba(0,0,0,0.02)", border: "1px dashed rgba(0,0,0,0.10)" }}>
+                      <div>
+                        <div className="text-[9px] text-slate-400 uppercase tracking-wide font-semibold">③ Execution (Advanced)</div>
+                        <div className="text-[10px] text-slate-400">Use only when updating/revoking issued credentials or rejecting an application; choose carefully</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <select
+                          value={quickAction}
+                          onChange={(e) => setQuickAction(e.currentTarget.value as typeof quickAction)}
+                          title="Choose the specific action to execute for this credential"
+                          className="px-3 py-2 text-xs rounded-lg text-slate-700"
+                          style={{ background: "#f8f9fa", border: "1px solid rgba(0,0,0,0.10)" }}
+                          disabled={agentBusyAction !== null}
+                        >
+                          <option value="auto-update">Auto Update (Server Signer)</option>
+                          <option value="auto-revoke">Auto Revoke (Server Signer)</option>
+                          <option value="manual-update">Manual Update Credential</option>
+                          <option value="manual-revoke">Manual Revoke Credential</option>
+                          <option value="reject">Reject Application</option>
+                        </select>
+                        <button
+                          onClick={() => void runQuickAction(selected)}
+                          disabled={quickActionDisabled}
+                          title="Execute the selected action on the left. Auto is server-signed; Manual requires wallet signature."
+                          className="min-w-[150px] px-4 py-2 text-xs font-semibold rounded-lg transition-opacity disabled:opacity-40 hover:opacity-90 text-white"
+                          style={{ background: "linear-gradient(135deg, #0f766e 0%, #1d4ed8 100%)" }}
+                        >
+                          {quickActionLabel}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -945,6 +1421,21 @@ export default function AdminKYCPage() {
                     <p className="text-xs text-emerald-600 leading-relaxed">
                       Wallet whitelisted in <code>IdentityRegistry.sol</code> on Casper Network. Investor may now proceed to subscription.
                     </p>
+                    {selected.txHash && (
+                      <p className="text-[11px] font-mono mt-2 break-all">
+                        Tx:{" "}
+                        <a
+                          href={selected.explorerUrl ?? `https://testnet.cspr.live/deploy/${selected.txHash}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-emerald-700 underline hover:opacity-75"
+                        >
+                          {selected.txHash}
+                        </a>
+                        {selected.chainStatus && (
+                          <span className="ml-1.5 text-slate-400">({selected.chainStatus})</span>
+                        )}
+                      </p>
+                    )}
                     {selected.pendingReason && (
                       <p className="text-[11px] text-amber-700 mt-2">Casper finality pending: {selected.pendingReason}</p>
                     )}
@@ -957,6 +1448,24 @@ export default function AdminKYCPage() {
                     <p className="text-xs text-red-500 leading-relaxed">
                       Wallet will not be whitelisted. Notify investor at <span className="underline">{selected.email}</span> with the reason for rejection.
                     </p>
+                    {selected.txHash && (
+                      <p className="text-[11px] font-mono mt-2 break-all">
+                        Tx:{" "}
+                        <a
+                          href={selected.explorerUrl ?? `https://testnet.cspr.live/deploy/${selected.txHash}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-red-600 underline hover:opacity-75"
+                        >
+                          {selected.txHash}
+                        </a>
+                        {selected.chainStatus && (
+                          <span className="ml-1.5 text-slate-400">({selected.chainStatus})</span>
+                        )}
+                      </p>
+                    )}
+                    {selected.pendingReason && (
+                      <p className="text-[11px] text-amber-700 mt-2">Casper finality pending: {selected.pendingReason}</p>
+                    )}
                   </div>
                 )}
 

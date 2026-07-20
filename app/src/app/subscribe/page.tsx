@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@/lib/wallet-context";
-import { connectCasperWallet, signCasperDeploy } from "@/lib/casper-wallet";
+import { connectCasperWallet, getCasperWalletProvider, signCasperDeploy } from "@/lib/casper-wallet";
+import { isCasperAddressLike } from "@/lib/casper-address";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -111,10 +112,30 @@ export default function SubscribePage() {
   const [paying,        setPaying]        = useState(false);
   const [payError,      setPayError]      = useState<string | null>(null);
   const [paymentTxHash, setPaymentTxHash] = useState<string | null>(null);
+  // Deterministic hash computed before broadcast; only used for display when the actual
+  // broadcast fails, so the "real" paymentTxHash never points at a transaction that was
+  // never submitted to the chain (that would make the confirm/retry button act on a fake tx).
+  const [attemptedTxHash, setAttemptedTxHash] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"Idle" | "Submitted" | "Pending" | "Confirmed" | "Failed" | "Skipped">("Idle");
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
   const [casperPublicKey, setCasperPublicKey] = useState<string | null>(null);
   const [contractHash, setContractHash] = useState<string | null>(null);
+
+  // Step 1 / Casper Wallet connect (needed early so the eligibility box shows the real
+  // Casper public key that KYC/subscription is actually keyed on, not the EVM wallet).
+  const [casperConnecting, setCasperConnecting] = useState(false);
+  const [casperConnectError, setCasperConnectError] = useState<string | null>(null);
+
+  // Step 1 / compliance credential receipt (read-only display of what's on file)
+  const [proofStatus, setProofStatus] = useState<{
+    found: boolean;
+    hasCredential?: boolean;
+    proofVerified?: boolean | null;
+    zkProofScheme?: string | null;
+    zkCircuitId?: string | null;
+    credentialCommitment?: string | null;
+    nullifierHash?: string | null;
+  } | null>(null);
 
   const CASPER_TREASURY = process.env.NEXT_PUBLIC_CASPER_TREASURY_PUBLIC_KEY ?? "Configured server-side";
 
@@ -209,6 +230,70 @@ export default function SubscribePage() {
   const effectiveWalletAddress = casperPublicKey || kycWalletAddress;
   const effectiveKycConfirmed  = kycConfirmed;
 
+  // Silently restore a previously-approved Casper Wallet session on mount (no popup) so
+  // returning users don't need to click "Connect Casper Wallet" again every visit.
+  useEffect(() => {
+    let active = true;
+    async function restoreCasperSession() {
+      try {
+        const provider = getCasperWalletProvider();
+        const alreadyConnected = await provider.isConnected();
+        if (!alreadyConnected) return;
+        const publicKey = await provider.getActivePublicKey();
+        if (active && publicKey) setCasperPublicKey(publicKey);
+      } catch {
+        // Casper Wallet extension not installed, or no prior session — ignore silently.
+      }
+    }
+    void restoreCasperSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleConnectCasperWalletStep1() {
+    setCasperConnecting(true);
+    setCasperConnectError(null);
+    try {
+      const { publicKey } = await connectCasperWallet();
+      setCasperPublicKey(publicKey);
+    } catch (e) {
+      setCasperConnectError(e instanceof Error ? e.message : "Failed to connect Casper Wallet");
+    } finally {
+      setCasperConnecting(false);
+    }
+  }
+
+  // KYC/subscription eligibility is keyed on the Casper wallet address, not the EVM wallet
+  // that RainbowKit/wagmi may report as `connectedWallet` — querying proof-status with an
+  // EVM address would always (correctly, but misleadingly) report "not found".
+  const casperWalletAddressForProofCheck = casperPublicKey
+    ?? (kycWalletAddress && isCasperAddressLike(kycWalletAddress) ? kycWalletAddress : null);
+
+  useEffect(() => {
+    let active = true;
+    if (!casperWalletAddressForProofCheck) {
+      setProofStatus(null);
+      return;
+    }
+    async function loadProofStatus() {
+      try {
+        const res = await fetchApiWithSubpathFallback(
+          `/api/kyc/proof-status?walletAddress=${encodeURIComponent(casperWalletAddressForProofCheck as string)}`,
+        );
+        if (!active) return;
+        const data = await res.json();
+        setProofStatus(data);
+      } catch {
+        if (active) setProofStatus(null);
+      }
+    }
+    void loadProofStatus();
+    return () => {
+      active = false;
+    };
+  }, [casperWalletAddressForProofCheck]);
+
   const tokenCount   = parseInt(tokens) || 0;
   const principal    = tokenCount * faceValue;
   const subFee       = principal * SUBSCRIPTION_FEE;
@@ -279,6 +364,7 @@ export default function SubscribePage() {
     setPayError(null);
     setPaymentNotice(null);
     setPaymentStatus("Idle");
+    setAttemptedTxHash(null);
     try {
       const amountMotes = BigInt(Math.round(csprAmount * 1_000_000_000)).toString();
       const { publicKey } = await connectCasperWallet();
@@ -314,12 +400,18 @@ export default function SubscribePage() {
           refNum,
         }),
       });
-      const submitData = await submitRes.json() as { deployHash?: string; txHash?: string; transactionHash?: string; status?: string; error?: string };
+      const submitData = await submitRes.json() as { deployHash?: string; txHash?: string; transactionHash?: string; status?: string; error?: string; broadcastFailed?: boolean };
+      const attemptedHash = submitData.transactionHash ?? submitData.deployHash ?? submitData.txHash ?? buildData.deployHash ?? undefined;
       if (!submitRes.ok || (!submitData.deployHash && !submitData.txHash && !submitData.transactionHash)) {
+        // Broadcast never reached the chain — keep this hash display-only. It must NOT be
+        // assigned to paymentTxHash, since that state also drives the "Retry payment
+        // confirmation" button, which would otherwise try to confirm a transaction that was
+        // never actually submitted.
+        if (attemptedHash) setAttemptedTxHash(attemptedHash);
         throw new Error(submitData.error ?? "Failed to submit signed Casper transfer");
       }
 
-      const pmtHash = submitData.transactionHash ?? submitData.deployHash ?? submitData.txHash ?? "";
+      const pmtHash = attemptedHash ?? "";
       setPaymentTxHash(pmtHash);
       setPaymentStatus("Submitted");
       setPaymentNotice("CSPR payment submitted; waiting for Casper confirmation before RWA token credit.");
@@ -412,23 +504,71 @@ export default function SubscribePage() {
                   <Link href="/kyc" className="text-blue-400 hover:underline">Complete KYC first &rarr;</Link>
                   <div className="mt-2">
                     <>
-                        {connectedWallet ? (
+                        {casperPublicKey ? (
                           <>
                             <input
                               type="text" readOnly
-                              value={kycWalletAddress}
+                              value={casperPublicKey}
                               className="w-full text-xs rounded px-2.5 py-1.5 font-mono outline-none mt-1"
                               style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a", color: "#15803d" }}
                             />
-                            <p className="text-[10px] text-emerald-600 mt-0.5">Auto-filled from connected wallet</p>
+                            <p className="text-[10px] text-emerald-600 mt-0.5">Auto-filled from connected Casper Wallet</p>
                           </>
                         ) : (
-                          <p className="text-[11px] text-slate-500 mt-1">
-                            Please connect your wallet first to continue.
-                          </p>
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); void handleConnectCasperWalletStep1(); }}
+                              disabled={casperConnecting}
+                              className="text-xs rounded px-3 py-1.5 mt-1 font-medium disabled:opacity-60"
+                              style={{ background: "rgba(37,99,235,0.08)", border: "1px solid #2563eb", color: "#1d4ed8" }}
+                            >
+                              {casperConnecting ? "Connecting…" : "Connect Casper Wallet"}
+                            </button>
+                            <p className="text-[11px] text-slate-500 mt-1">
+                              KYC/compliance eligibility is checked against your Casper wallet, not an EVM wallet.
+                              {connectedWallet && " Your connected EVM wallet is not used for this check."}
+                            </p>
+                            {casperConnectError && (
+                              <p className="text-[11px] text-rose-600 mt-1">{casperConnectError}</p>
+                            )}
+                          </>
                         )}
                       </>
                   </div>
+                  {casperPublicKey && (
+                    <div className="mt-2 rounded px-2.5 py-2 text-[11px] leading-relaxed"
+                      style={{ background: "rgba(15,23,42,0.03)", border: "1px solid rgba(0,0,0,0.08)" }}>
+                      {proofStatus === null ? (
+                        <span className="text-slate-400">Checking compliance credential…</span>
+                      ) : !proofStatus.found || !proofStatus.hasCredential ? (
+                        <span className="text-amber-600">
+                          No compliance credential on file yet for this wallet — subscription will be rejected until KYC is approved and a proof is issued.
+                        </span>
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="font-medium text-slate-700">
+                            Compliance proof on file: {proofStatus.proofVerified ? (
+                              <span className="text-emerald-600">verified</span>
+                            ) : (
+                              <span className="text-amber-600">not yet verified</span>
+                            )}
+                          </div>
+                          <div className="text-slate-500">
+                            Scheme <span className="font-mono">{proofStatus.zkProofScheme ?? "—"}</span> · Circuit{" "}
+                            <span className="font-mono">{proofStatus.zkCircuitId ?? "—"}</span>
+                          </div>
+                          <div className="text-slate-500">
+                            Commitment <span className="font-mono">{proofStatus.credentialCommitment ?? "—"}</span>
+                          </div>
+                          <div className="text-slate-400 text-[10px] mt-1">
+                            This proof was generated when your KYC was approved. It will be re-verified server-side (and checked against
+                            reuse) at the moment you submit this subscription.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </label>
@@ -794,6 +934,24 @@ export default function SubscribePage() {
                     <a href={`https://testnet.cspr.live/deploy/${paymentTxHash}`} target="_blank" rel="noopener noreferrer"
                       className="underline hover:opacity-75 break-all">{paymentTxHash}</a>
                   </div>
+                </div>
+              )}
+              {!paymentTxHash && attemptedTxHash && (
+                <div className="rounded px-3 py-2.5 text-xs flex flex-col gap-1.5 text-red-600"
+                  style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.35)" }}>
+                  <div className="flex items-center gap-2">
+                    <span>✗</span>
+                    <span className="font-medium">Broadcast failed — transaction was not submitted to Casper</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[10px] break-all">
+                    <span className="shrink-0 text-slate-500">Attempted Tx:</span>
+                    <a href={`https://testnet.cspr.live/deploy/${attemptedTxHash}`} target="_blank" rel="noopener noreferrer"
+                      className="underline hover:opacity-75 break-all">{attemptedTxHash}</a>
+                  </div>
+                  <p className="text-[10px] text-red-500">
+                    This hash was computed locally before broadcasting and does not exist on-chain. No CSPR was
+                    deducted — click &quot;Pay via Casper Wallet&quot; again to retry.
+                  </p>
                 </div>
               )}
               {contractHash && (

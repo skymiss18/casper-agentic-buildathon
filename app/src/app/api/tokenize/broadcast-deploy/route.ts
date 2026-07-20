@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     };
 
     let deployJson: Record<string, unknown> | undefined = body.deployJson;
+    let packageKeyName: string | undefined;
 
     if (body.deployToken) {
       // Validate token format to prevent path traversal
@@ -43,8 +44,9 @@ export async function POST(req: NextRequest) {
       if (!fs.existsSync(filePath)) {
         return NextResponse.json({ error: "Deploy token not found or expired" }, { status: 404 });
       }
-      const stored = JSON.parse(fs.readFileSync(filePath, "utf8")) as { deployJson: Record<string, unknown>; signerPublicKey: string };
+      const stored = JSON.parse(fs.readFileSync(filePath, "utf8")) as { deployJson: Record<string, unknown>; signerPublicKey: string; packageKeyName?: string };
       deployJson = stored.deployJson;
+      packageKeyName = stored.packageKeyName;
       // Clean up the temp file
       fs.unlinkSync(filePath);
     }
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest) {
       deployJson,
       signatureHex: body.signatureHex.trim(),
       signerPublicKey: body.signerPublicKey.trim(),
+      packageKeyName,
     });
 
     const rawName = body.assetName?.trim() || "Harbour RWA Issuance";
@@ -92,6 +95,7 @@ export async function POST(req: NextRequest) {
       gasUsed: 0,
       explorerUrl: result.explorerUrl,
       symbol: makeSymbol(rawName),
+      packageKeyName: result.packageKeyName,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Casper broadcast failed";

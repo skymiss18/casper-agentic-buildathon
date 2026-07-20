@@ -109,7 +109,10 @@ export async function POST(req: NextRequest) {
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(
           path.join(dir, `deploy-${token}.json`),
-          JSON.stringify({ deployJson: result.deployJson, signerPublicKey: result.signerPublicKey }),
+          // Persist packageKeyName alongside the deploy payload so broadcast-deploy can echo
+          // back the REAL odra_cfg_package_hash_key_name used for this install (it includes a
+          // random uniqueness suffix that reconciliation cannot re-derive from assetId alone).
+          JSON.stringify({ deployJson: result.deployJson, signerPublicKey: result.signerPublicKey, packageKeyName: result.packageKeyName }),
         );
         return token;
       })(),
@@ -117,6 +120,7 @@ export async function POST(req: NextRequest) {
       signerPublicKey: result.signerPublicKey,
       paymentMotes: result.paymentMotes,
       paymentCSPR: (Number(result.paymentMotes) / 1e9).toFixed(0),
+      packageKeyName: result.packageKeyName,
     });
   } catch (err) {
     return NextResponse.json(

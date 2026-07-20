@@ -50,6 +50,9 @@ pub struct IdentityRegistry {
     compliance_officer: Var<Address>,
     /// investor Address → InvestorRecord
     investors: Mapping<Address, InvestorRecord>,
+    /// investor Address → risk band (0 = lowest risk). Added in v2, independent of
+    /// InvestorRecord to keep the original storage layout upgrade-compatible.
+    risk_bands: Mapping<Address, u8>,
 }
 
 #[odra::module]
@@ -122,6 +125,24 @@ impl IdentityRegistry {
     pub fn compliance_officer(&self) -> Address {
         self.compliance_officer
             .get_or_revert_with(RegistryError::Unauthorized)
+    }
+
+    /// Set an investor's risk band (0 = lowest risk). Only the compliance officer
+    /// may call this. Added in the v2 upgrade — stored independently of
+    /// InvestorRecord so existing installs can upgrade in place.
+    pub fn set_risk_band(&mut self, investor: Address, risk_band: u8) {
+        self.assert_compliance_officer();
+        self.risk_bands.set(&investor, risk_band);
+    }
+
+    /// Return an investor's risk band (defaults to 0 if never set).
+    pub fn get_risk_band(&self, investor: Address) -> u8 {
+        self.risk_bands.get_or_default(&investor)
+    }
+
+    /// Contract version marker — observable proof that an in-place upgrade ran.
+    pub fn contract_version(&self) -> String {
+        "v2".to_string()
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────

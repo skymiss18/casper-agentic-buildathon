@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readKycApplications, upsertKycApplication, type KycApplicationRecord } from "@/lib/kyc-store";
+import { readKycApplications, upsertKycApplication, appendAgentActionLog, type KycApplicationRecord } from "@/lib/kyc-store";
 import { recommendKycAction } from "@/lib/kyc-agent";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "KYC application has no walletAddress" }, { status: 422 });
     }
 
-    const recommendation = recommendKycAction({
+    const recommendation = await recommendKycAction({
       id: target.id,
       walletAddress: target.walletAddress,
       jurisdiction: target.jurisdiction,
@@ -33,6 +33,14 @@ export async function POST(req: NextRequest) {
       credentialCommitment: typeof target.credentialCommitment === "string" ? target.credentialCommitment : null,
       nullifierHash: typeof target.nullifierHash === "string" ? target.nullifierHash : null,
       proofHash: typeof target.proofHash === "string" ? target.proofHash : null,
+      zkProof: typeof target.zkProof === "string" ? target.zkProof : null,
+      zkPublicSignals: Array.isArray(target.zkPublicSignals)
+        ? target.zkPublicSignals.filter((item): item is string => typeof item === "string")
+        : null,
+      zkProofScheme: typeof target.zkProofScheme === "string" ? target.zkProofScheme : null,
+      zkCircuitId: typeof target.zkCircuitId === "string" ? target.zkCircuitId : null,
+      proofVerified: typeof target.proofVerified === "boolean" ? target.proofVerified : null,
+      zkVerifiedAt: typeof target.zkVerifiedAt === "string" ? target.zkVerifiedAt : null,
       monitoringStatus: typeof target.monitoringStatus === "string" ? target.monitoringStatus : null,
       lastScreenedAt: typeof target.lastScreenedAt === "string" ? target.lastScreenedAt : null,
     });
@@ -41,6 +49,10 @@ export async function POST(req: NextRequest) {
       ...recommendation.updatePatch,
       status: target.status === "pending" ? "ai_scored" : target.status,
     });
+
+    if (recommendation.action !== "noop") {
+      appendAgentActionLog(id, { action: recommendation.action, mode: "manual", reason: recommendation.reason });
+    }
 
     return NextResponse.json({
       success: true,

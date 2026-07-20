@@ -69,6 +69,8 @@ export async function POST(req: NextRequest) {
       pendingReason: result.pendingReason,
       gasUsed: 0,
       explorerUrl: result.explorerUrl,
+      contractVersion: "v1",
+      isUpgradable: true,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Casper identity-registry broadcast failed";

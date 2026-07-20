@@ -23,6 +23,16 @@ export interface CasperContractDeploymentRecord {
   status?: string;
   pendingReason?: string;
   deployerPublicKey?: string;
+  /** The real odra_cfg_package_hash_key_name used at install time (includes a random
+   *  uniqueness suffix — see generatePackageKeySuffix() in casper-token-deploy.ts).
+   *  Reconciliation MUST use this exact name when present; it cannot be re-derived
+   *  from assetId alone. */
+  packageKeyName?: string;
+  /** Odra contract version tag ("v1" initial install, "v2"+ after an in-place
+   *  upgrade via odra_cfg_is_upgrade=true). Used to show a Track-4 "contract is
+   *  upgradable" badge in the UI. */
+  contractVersion?: string;
+  isUpgradable?: boolean;
 }
 
 export interface CasperDeploymentRecord extends CasperContractDeploymentRecord {
@@ -36,14 +46,20 @@ type DeployResultPayload = {
         account?: string;
       };
     };
+    // Casper 1.x shape
     execution_results?: Array<{
       result?: {
-        Failure?: {
-          error_message?: string;
-        };
-        Success?: unknown;
+        Failure?: { error_message?: string };
+        Success?: { effect?: { transforms?: Array<{ key?: string; transform?: unknown }> } };
       };
     }>;
+    // Casper 2.x shape
+    execution_info?: {
+      execution_result?: {
+        Version1?: { error_message?: string | null; effects?: Array<{ key?: string; kind?: unknown }> };
+        Version2?: { error_message?: string | null; effects?: Array<{ key?: string; kind?: unknown }> };
+      };
+    };
   };
 };
 
@@ -111,7 +127,7 @@ async function rpcCall<T>(method: string, params: Record<string, unknown>) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.timeout(4_000),
       });
       const payload = await response.json() as T & { error?: { message?: string } };
       if (!(payload as { error?: { message?: string } }).error) return payload;
@@ -123,16 +139,49 @@ async function rpcCall<T>(method: string, params: Record<string, unknown>) {
   throw new Error(lastError ?? `RPC call failed: ${method}`);
 }
 
+/**
+ * Extracts the on-chain contract hash directly from a deploy's own execution effects.
+ * This is the ONLY reliable way to reconcile a Submitted TokenCoupon deploy retroactively:
+ * unlike named-key lookups (fetchNamedKeyContractHash), it doesn't depend on knowing the
+ * exact odra_cfg_package_hash_key_name used at install time (which includes a random
+ * uniqueness suffix that isn't always recorded), and it works even if the account's named
+ * keys were later overwritten/removed. Odra contracts write a "EVENTS" message topic under
+ * their own AddressableEntity key at install time, which Casper 2.x nodes report as an
+ * effect keyed "...entity-contract-<64 hex>..." — that hex IS the contract hash.
+ */
+function extractContractHashFromEffects(effects: Array<{ key?: string }> | undefined): string | undefined {
+  if (!Array.isArray(effects)) return undefined;
+  for (const effect of effects) {
+    const match = /entity-contract-([0-9a-fA-F]{64})/.exec(effect.key ?? "");
+    if (match) return `contract-${match[1].toLowerCase()}`;
+  }
+  // Legacy Casper 1.x shape: a Contract value written directly under a "hash-<hex>" key.
+  for (const effect of effects) {
+    const match = /^hash-([0-9a-fA-F]{64})$/.exec(effect.key ?? "");
+    if (match) return `contract-${match[1].toLowerCase()}`;
+  }
+  return undefined;
+}
+
 async function fetchDeployMetadata(deployHash: string) {
   try {
-    const payload = await rpcCall<DeployResultPayload>("info_get_deploy", { deploy_hash: deployHash });
-    const executionResult = payload.result?.execution_results?.[0]?.result;
+    const payload = await rpcCall<DeployResultPayload>("info_get_deploy", { deploy_hash: deployHash, finalized_approvals: true });
+    const v1Result = payload.result?.execution_results?.[0]?.result;
+    const v2Result = payload.result?.execution_info?.execution_result?.Version2
+      ?? payload.result?.execution_info?.execution_result?.Version1;
+
+    const failureMessage = v1Result?.Failure?.error_message ?? v2Result?.error_message ?? undefined;
+    const contractHash = v1Result?.Success?.effect?.transforms
+      ? extractContractHashFromEffects(v1Result.Success.effect.transforms as Array<{ key?: string }>)
+      : extractContractHashFromEffects(v2Result?.effects as Array<{ key?: string }> | undefined);
+
     return {
       account: payload.result?.deploy?.header?.account,
-      failureMessage: executionResult?.Failure?.error_message,
+      failureMessage,
+      contractHash,
     };
   } catch {
-    return { account: undefined, failureMessage: undefined };
+    return { account: undefined, failureMessage: undefined, contractHash: undefined };
   }
 }
 
@@ -180,7 +229,24 @@ async function reconcileContractDeployment(
   }
 
   const deployHash = deployment.deployHash ?? deployment.txHash ?? deployment.registrationId;
-  const deployMeta = deployHash ? await fetchDeployMetadata(deployHash) : { account: undefined, failureMessage: undefined };
+  const deployMeta = deployHash
+    ? await fetchDeployMetadata(deployHash)
+    : { account: undefined, failureMessage: undefined, contractHash: undefined };
+
+  if (!next.deployerPublicKey && deployMeta.account) {
+    next.deployerPublicKey = deployMeta.account;
+  }
+
+  // Primary path: read the contract hash directly out of the deploy's own execution effects.
+  // This works retroactively for ANY already-broadcast deploy (no dependency on named keys or
+  // on packageKeyName having been recorded), so it fixes already-stuck "Submitted" records too.
+  if (deployMeta.contractHash) {
+    next.contractHash = deployMeta.contractHash;
+    next.contractAddress = next.contractAddress ?? deployMeta.contractHash;
+    next.status = "Deployed";
+    delete next.pendingReason;
+    return next;
+  }
 
   const candidatePublicKeys = [
     deployment.deployerPublicKey,
@@ -188,15 +254,17 @@ async function reconcileContractDeployment(
     getOraclePublicKey(),
   ].filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index);
 
-  if (!next.deployerPublicKey && deployMeta.account) {
-    next.deployerPublicKey = deployMeta.account;
-  }
-
   const assetId = deployment.assetId ?? (deployment.assetName ? makeAssetIdCasper(deployment.assetName) : undefined);
-  if (assetId) {
-    const namedKeyName = kind === "tokenCoupon"
-      ? makeNamedKeyName("token_coupon", assetId)
-      : makeNamedKeyName("identity_registry", assetId);
+  // Prefer the real named key captured at install time (it includes a random uniqueness
+  // suffix — see generatePackageKeySuffix() in casper-token-deploy.ts). Falling back to the
+  // guessed "prefix_assetId" name only supports older records saved before this field existed;
+  // that guess will never match a freshly-installed contract's actual named key.
+  const namedKeyCandidates = [
+    deployment.packageKeyName,
+    assetId ? (kind === "tokenCoupon" ? makeNamedKeyName("token_coupon", assetId) : makeNamedKeyName("identity_registry", assetId)) : undefined,
+  ].filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index);
+
+  for (const namedKeyName of namedKeyCandidates) {
     for (const publicKey of candidatePublicKeys) {
       const contractHash = await fetchNamedKeyContractHash(publicKey, namedKeyName);
       if (contractHash) {
@@ -246,13 +314,31 @@ function isStableDeployment(deployment: CasperDeploymentRecord) {
     && isStableContractDeployment(deployment.identityRegistry);
 }
 
+// Reconciling an unresolved deployment means hitting the Casper RPC (with an 8s timeout
+// per fallback node) up to several times. Every API route that reads deployments
+// (tokenize/deployments, kyc/config, subscribe, ...) calls this function, and pages poll
+// those routes frequently — without a cooldown, a single still-pending deployment causes
+// every request across the whole app to block for 20-30+ seconds while RPC nodes are
+// slow/unreachable. Cap retries to once per cooldown window per deployment id instead.
+const RECONCILE_COOLDOWN_MS = 60_000;
+const lastReconcileAttemptAt = new Map<string, number>();
+
 export async function readDeploymentsWithReconciliation() {
   const current = readRawDeployments();
   let changed = false;
+  const now = Date.now();
   const nextEntries = await Promise.all(Object.entries(current).map(async ([id, deployment]) => {
     if (isStableDeployment(deployment)) {
       return [id, deployment] as const;
     }
+
+    const lastAttempt = lastReconcileAttemptAt.get(id);
+    if (lastAttempt && now - lastAttempt < RECONCILE_COOLDOWN_MS) {
+      // Recently attempted and still unresolved; skip the slow RPC round-trip this time.
+      return [id, deployment] as const;
+    }
+
+    lastReconcileAttemptAt.set(id, now);
     const reconciled = await reconcileDeployment(deployment);
     const hasChanged = JSON.stringify(reconciled) !== JSON.stringify(deployment);
     if (hasChanged) changed = true;

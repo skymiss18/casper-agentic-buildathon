@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Deploy, PublicKey, Transaction } from "casper-js-sdk";
-import { casperExplorerDeployUrl, getCasperRpcClient } from "@/lib/casper-chain";
+import { casperExplorerDeployUrl, getCasperRpcClientForUrl, getCasperRpcUrls } from "@/lib/casper-chain";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const DEFAULT_RPC_URL = "https://node.testnet.casper.network/rpc";
 
 function signatureHexToBytes(signatureHex: string, signingPublicKeyHex: string) {
   let hex = signatureHex.trim().replace(/^0x/i, "");
@@ -54,37 +52,72 @@ function findHashString(value: unknown): string | undefined {
 }
 
 async function putTransactionDirect(transaction: Transaction) {
-  const rpcUrl = process.env.CASPER_RPC_URL?.trim() || DEFAULT_RPC_URL;
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "account_put_transaction",
-      params: { transaction: { Version1: transaction.toJSON() } },
-    }),
-  });
-  const text = await response.text();
+  const rpcUrls = getCasperRpcUrls();
+  let lastError: unknown;
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${text.slice(0, 500)}`);
+  for (const rpcUrl of rpcUrls) {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "account_put_transaction",
+          params: { transaction: { Version1: transaction.toJSON() } },
+        }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      const text = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 500)}`);
+      }
+
+      const data = JSON.parse(text) as {
+        result?: { transaction_hash?: unknown; transactionHash?: unknown };
+        error?: { code?: number; message?: string; data?: unknown };
+      };
+
+      if (data.error) {
+        const detail = typeof data.error.data === "string" ? `: ${data.error.data}` : "";
+        throw new Error(`Code: ${data.error.code ?? "RPC"}, err: ${data.error.message ?? "Casper RPC error"}${detail}`);
+      }
+
+      return findHashString(data.result?.transaction_hash ?? data.result?.transactionHash) || hashToHex(transaction.hash);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[casper-transfer/submit] account_put_transaction failed on ${rpcUrl}: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
-  const data = JSON.parse(text) as {
-    result?: { transaction_hash?: unknown; transactionHash?: unknown };
-    error?: { code?: number; message?: string; data?: unknown };
-  };
+  throw lastError instanceof Error ? lastError : new Error("All Casper RPC nodes are unreachable");
+}
 
-  if (data.error) {
-    const detail = typeof data.error.data === "string" ? `: ${data.error.data}` : "";
-    throw new Error(`Code: ${data.error.code ?? "RPC"}, err: ${data.error.message ?? "Casper RPC error"}${detail}`);
+async function putDeployDirect(deploy: Deploy) {
+  const rpcUrls = getCasperRpcUrls();
+  let lastError: unknown;
+
+  for (const rpcUrl of rpcUrls) {
+    try {
+      const rpc = getCasperRpcClientForUrl(rpcUrl);
+      const putResult = await rpc.putDeploy(deploy);
+      return hashToHex(
+        (putResult as { deployHash?: unknown; deploy_hash?: unknown }).deployHash
+          ?? (putResult as { deployHash?: unknown; deploy_hash?: unknown }).deploy_hash
+          ?? deploy.hash
+      );
+    } catch (err) {
+      lastError = err;
+      console.warn(`[casper-transfer/submit] putDeploy failed on ${rpcUrl}: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
-  return findHashString(data.result?.transaction_hash ?? data.result?.transactionHash) || hashToHex(transaction.hash);
+  throw lastError instanceof Error ? lastError : new Error("All Casper RPC nodes are unreachable");
 }
 
 export async function POST(req: NextRequest) {
+  let earlyHash: string | undefined;
   try {
     const body = await req.json() as {
       deployJson?: unknown;
@@ -100,6 +133,7 @@ export async function POST(req: NextRequest) {
 
     if (isTransactionJson(payload)) {
       const transaction = Transaction.fromJSON(payload);
+      earlyHash = hashToHex(transaction.hash);
       if (!body.signedDeployJson) {
         if (!body.signatureHex || !body.signingPublicKeyHex) {
           return NextResponse.json({ error: "signatureHex and signingPublicKeyHex are required" }, { status: 400 });
@@ -123,6 +157,7 @@ export async function POST(req: NextRequest) {
     }
 
     const deploy = Deploy.fromJSON(payload);
+    earlyHash = hashToHex(deploy.hash);
     if (!body.signedDeployJson) {
       if (!body.signatureHex || !body.signingPublicKeyHex) {
         return NextResponse.json({ error: "signatureHex and signingPublicKeyHex are required" }, { status: 400 });
@@ -135,13 +170,7 @@ export async function POST(req: NextRequest) {
     }
 
     deploy.validate();
-    const rpc = getCasperRpcClient();
-    const putResult = await rpc.putDeploy(deploy);
-    const deployHash = hashToHex(
-      (putResult as { deployHash?: unknown; deploy_hash?: unknown }).deployHash
-        ?? (putResult as { deployHash?: unknown; deploy_hash?: unknown }).deploy_hash
-        ?? deploy.hash
-    );
+    const deployHash = await putDeployDirect(deploy);
 
     return NextResponse.json({
       status: "Submitted",
@@ -154,7 +183,16 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : "Failed to submit signed Casper transfer";
     console.error("[casper-transfer/submit] ERROR:", message);
     return NextResponse.json(
-      { error: message },
+      {
+        error: message,
+        // Deterministic hash computed before broadcasting, so the client can still
+        // show/reference a transaction id even if every RPC node rejected the submit.
+        deployHash: earlyHash,
+        txHash: earlyHash,
+        transactionHash: earlyHash,
+        explorerUrl: earlyHash ? casperExplorerDeployUrl(earlyHash) : undefined,
+        broadcastFailed: true,
+      },
       { status: 500 }
     );
   }
