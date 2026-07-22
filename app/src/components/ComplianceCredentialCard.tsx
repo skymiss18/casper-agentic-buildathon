@@ -58,7 +58,10 @@ export default function ComplianceCredentialCard(props: ComplianceCredentialCard
   return (
     <div className="rounded-xl px-5 py-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
       <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Compliance Credential</div>
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Compliance Credential</div>
+          <p className="text-[10px] text-slate-500 mt-0.5">ZK-backed eligibility state for policy gating and continuous monitoring.</p>
+        </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <span
             className="text-[10px] font-bold rounded-full px-2.5 py-0.5"
@@ -122,8 +125,8 @@ export default function ComplianceCredentialCard(props: ComplianceCredentialCard
 
       {!props.compact && (
         <div className="text-[10px] text-slate-400 mt-3 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-          Currently backed by the Casper IdentityRegistry contract (whitelist mapping). A dedicated soulbound
-          Compliance Credential Token contract is planned as a future upgrade.
+          Backed by the Casper IdentityRegistry whitelist mapping today. A dedicated soulbound
+          Compliance Credential token contract is designed as a future upgrade path.
         </div>
       )}
     </div>

@@ -1,41 +1,20 @@
 [
   {
-    "assetId": "nibt2",
-    "assetName": "NIBT2",
-    "deploymentId": "ISS-DYN-1782469236143",
-    "contractHash": "contract-5433399954f15e10c02ee6064fe28ac1c7fefafd5d05b9e9728b585c30fd0fa1",
+    "assetId": "nibt3",
+    "assetName": "NIBT3",
+    "deploymentId": "ISS-DYN-1784600527036",
+    "contractHash": "contract-e1b99cd7d1fa641985b1bc905386e899c92eb57fe4334378cb72225555f293d5",
     "investorPublicKey": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
     "tokenCount": 20,
-    "paymentRef": "NIBT-MQUUXFEP:cbef3a92f4e2fb5d5bd401d7d2fb932383414cf7d62acd21ba96c40a9580a59b",
-    "paymentTxHash": "cbef3a92f4e2fb5d5bd401d7d2fb932383414cf7d62acd21ba96c40a9580a59b",
-    "mintTxHash": "a9aeb7e9613aa283e147fceb55a8962d01fdde3ce6198533f4422efe9ec68d56",
-    "mintStatus": "Submitted",
-    "createdAt": "2026-06-26T11:43:39.306Z"
-  },
-  {
-    "assetId": "nibt0823",
-    "assetName": "NIBT0823",
-    "deploymentId": "ISS-DYN-1782433416951",
-    "contractHash": "contract-caa21b95abbf44c3ee655e538204d0dc79554ea96cedb947891777bc0bfaa02a",
-    "investorPublicKey": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
-    "tokenCount": 20,
-    "paymentRef": "NIBT-MQU71AVT:0eb7fc9bc67235c16b94b059b900459e6a0c754e345019af1965589555af12f9",
-    "paymentTxHash": "0eb7fc9bc67235c16b94b059b900459e6a0c754e345019af1965589555af12f9",
-    "mintTxHash": "52bf1f272fd582e3d1b6226283ab3d13ce5c47168aa03e79a6c73b6dbc60aa36",
-    "mintStatus": "Submitted",
-    "createdAt": "2026-06-26T00:29:35.051Z"
-  },
-  {
-    "assetId": "nibt2313",
-    "assetName": "NIBT2313",
-    "deploymentId": "ISS-DYN-1782400475915",
-    "contractHash": "contract-3fd4b6eb2aa6186e4ed8f6aa083c5bce7aaa1f934e10e84cba0439c4d6141c65",
-    "investorPublicKey": "02031282d32bbacc75eb84179aef5ce519364b5a0bf7701781437f558c793661597d",
-    "tokenCount": 20,
-    "paymentRef": "NIBT-MQU64TAZ:26aa34743d7dc518c27916bc2ca8fd1a9815db1ee73e607bd830d1d28e87ad8d",
-    "paymentTxHash": "26aa34743d7dc518c27916bc2ca8fd1a9815db1ee73e607bd830d1d28e87ad8d",
-    "mintTxHash": "43f4357d601f91bcb0b8bbe685f52cee15c982f8c810aaddbf6a73d0ae5befa1",
-    "mintStatus": "Submitted",
-    "createdAt": "2026-06-26T00:04:36.836Z"
+    "refNum": "NIBT-MRVF94R9",
+    "paymentRef": "NIBT-MRVF94R9:a5a4ccca06b57d9e3bf5f6d0f2f3ce8bbc958f0759eaab42568bac4f447890a6",
+    "paymentTxHash": "a5a4ccca06b57d9e3bf5f6d0f2f3ce8bbc958f0759eaab42568bac4f447890a6",
+    "mintTxHash": "",
+    "paymentStatus": "Pending",
+    "mintStatus": "PendingFinality",
+    "pendingReason": "Casper payment transaction is not finalized or RPC lookup is unavailable yet: failed to send http request, details: Network Error",
+    "error": null,
+    "createdAt": "2026-07-22T01:56:02.043Z",
+    "updatedAt": "2026-07-22T01:56:02.043Z"
   }
 ]

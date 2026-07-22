@@ -764,6 +764,37 @@ export default function AdminKYCPage() {
 
   return (
     <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <section className="rounded-2xl p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(29,78,216,0.08))", border: "1px solid rgba(245,158,11,0.24)" }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-700">AI Agent Control Plane</p>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 mt-1">Compliance & KYC Operations</h1>
+            <p className="text-sm text-slate-700 mt-2 leading-relaxed">
+              Run deterministic scoring, invoke agent recommendations, and execute wallet credential updates on Casper.
+              This console controls the off-chain review and on-chain credential lifecycle without exposing sensitive source documents.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] w-full sm:w-auto">
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(245,158,11,0.22)" }}>
+              <div className="text-slate-500">Lane A</div>
+              <div className="font-semibold text-slate-800">Analyze</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(245,158,11,0.22)" }}>
+              <div className="text-slate-500">Lane B</div>
+              <div className="font-semibold text-slate-800">Approve / Reject</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(245,158,11,0.22)" }}>
+              <div className="text-slate-500">Lane C</div>
+              <div className="font-semibold text-slate-800">Auto Update / Revoke</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(245,158,11,0.22)" }}>
+              <div className="text-slate-500">Lane D</div>
+              <div className="font-semibold text-slate-800">Upgradeable governance</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex gap-5 items-start">
 
         {/* ── LEFT SIDEBAR: Application queue ────────────────────────────── */}
@@ -847,6 +878,7 @@ export default function AdminKYCPage() {
             <span className="font-semibold text-amber-700 uppercase tracking-wide text-[10px]">Type 1 LC · Compliance Officer Portal</span>
             <p className="text-slate-600 mt-1">
               AMLO (Cap.615) identity verification pipeline. Review each investor application, run AI compliance scoring, then <strong className="text-amber-700">Approve &amp; Whitelist</strong> to activate the wallet in <code className="text-amber-600">IdentityRegistry.sol</code>.
+              Credential updates and revocations can be executed manually or autonomously through the agent policy controls below.
             </p>
           </div>
 

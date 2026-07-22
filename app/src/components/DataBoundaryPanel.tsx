@@ -15,9 +15,12 @@ export default function DataBoundaryPanel({ defaultOpen = false }: { defaultOpen
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 text-left"
       >
-        <span className="text-[11px] font-semibold text-slate-700">
-          On-chain vs Off-chain Data Boundary
-        </span>
+        <div>
+          <span className="text-[11px] font-semibold text-slate-700">
+            On-chain vs Off-chain Data Boundary
+          </span>
+          <p className="text-[10px] text-slate-500 mt-0.5">Raw identity evidence stays off-chain; only verifiable compliance commitments are anchored on Casper.</p>
+        </div>
         <span className="text-slate-400 text-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -38,6 +41,10 @@ export default function DataBoundaryPanel({ defaultOpen = false }: { defaultOpen
               <li>Risk band, is_verified / aml_clear flags</li>
               <li>KYC expiry timestamp</li>
             </ul>
+          </div>
+          <div className="sm:col-span-2 rounded-lg px-3 py-2" style={{ background: "rgba(29,78,216,0.05)", border: "1px solid rgba(29,78,216,0.15)" }}>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Privacy guarantee</span>
+            <p className="text-[11px] text-slate-600 mt-1">The chain verifies eligibility, not personal identity records. This preserves auditability and data minimization at the same time.</p>
           </div>
         </div>
       )}

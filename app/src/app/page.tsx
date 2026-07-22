@@ -3,23 +3,23 @@ export default function HomePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
       {/* ── S1: Hero ── */}
-      <section className="pt-16 pb-20 grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-16 items-start">
+      <section className="pt-6 pb-20 grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-16 items-start">
 
         {/* Left — 3 cols */}
-        <div className="lg:col-span-3 pt-2 animate-fade-up">
+        <div className="lg:col-span-3 animate-fade-up">
           <div className="inline-flex items-center gap-2 mb-6">
 
           </div>
-          <h1 className="text-[46px] sm:text-[56px] leading-[1.04] tracking-tight mb-6"
+          <h1 className="text-[40px] sm:text-[48px] leading-[1.06] tracking-tight mb-6"
             style={{ letterSpacing: "-0.025em", fontFamily: "'Lora', Georgia, serif", fontWeight: 600 }}>
             <span style={{ color: "#111111" }}>AI Compliance,</span><br />
-            <span style={{ color: "#111111" }}>Anchored On-Chain.</span><br />
-            <span className="text-gradient-blue">RWA Issuance, End-to-End.</span>
+            <span style={{ color: "#111111" }}>Zero-Knowledge Credentials,</span><br />
+            <span className="text-gradient-blue">Casper Enforcement End-to-End.</span>
           </h1>
           <p className="text-[15px] leading-relaxed mb-10 max-w-[480px]" style={{ color: "#555555" }}>
-            The first RWA infrastructure stack where AI compliance scores are written to
-            Casper — gating every mint and every transfer. From prospectus review to
-            on-chain coupon claims, the full lifecycle runs on-chain.
+            Off-chain AI verifies issuer and investor evidence, then only privacy-preserving
+            commitment/proof state is anchored on Casper. Smart contracts enforce mint and
+            transfer policy while autonomous agents handle update/revoke operations.
           </p>
           <div className="flex flex-wrap items-center gap-3 mb-14">
             <a href="/tokenize"
@@ -43,8 +43,8 @@ export default function HomePage() {
               <div className="text-[11px]" style={{ color: "#888888" }}>RWA asset classes supported</div>
             </div>
             <div className="px-5 py-4">
-              <div className="text-[22px] font-bold leading-none mb-1.5" style={{ color: "#111111", letterSpacing: "-0.02em", fontFamily: "'Lora', Georgia, serif" }}>T+2</div>
-              <div className="text-[11px]" style={{ color: "#888888" }}>Atomic on-chain settlement</div>
+              <div className="text-[22px] font-bold leading-none mb-1.5" style={{ color: "#111111", letterSpacing: "-0.02em", fontFamily: "'Lora', Georgia, serif" }}>24/7</div>
+              <div className="text-[11px]" style={{ color: "#888888" }}>Continuous off-chain monitoring</div>
             </div>
           </div>
         </div>
@@ -145,20 +145,20 @@ export default function HomePage() {
               cta: "See KYC flow →",
             },
             {
-              accent: "#7c3aed",
-              accentBg: "rgba(124,58,237,0.07)",
-              accentBorder: "rgba(124,58,237,0.18)",
+              accent: "#0f766e",
+              accentBg: "rgba(15,118,110,0.08)",
+              accentBorder: "rgba(15,118,110,0.2)",
               icon: (
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none">
-                  <path d="M4 14c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.5"/>
-                  <path d="M10 3v5M7 5l3-2 3 2" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M4 14c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="#0f766e" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.5"/>
+                  <path d="M10 3v5M7 5l3-2 3 2" stroke="#0f766e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               ),
-              title: "Full Yield Life-Cycle On-Chain",
-              label: "Casper Ecosystem",
-              body: "Coupon funds are deposited in USDY on Casper, auto-compounding until payment date. Investors claim coupons on-chain. Idle capital routes to mETH for additional yield. No off-chain bank wires for coupon servicing.",
-              link: "/portfolio",
-              cta: "View portfolio →",
+              title: "Autonomous Credential Lifecycle",
+              label: "Agentic Governance",
+              body: "After issuance, autonomous policy checks can update or revoke credentials via Casper transactions. IdentityRegistry versioning keeps compliance logic upgradeable without exposing raw personal data.",
+              link: "/admin/kyc",
+              cta: "Open control plane →",
             },
           ].map((c) => (
             <div key={c.title} className="rounded-xl p-6 flex flex-col gap-4 glow-hover"
@@ -217,8 +217,8 @@ export default function HomePage() {
               actor: "On-Chain Servicing",
               actorColor: "#7c3aed",
               title: "Coupon Funding & Claim",
-              desc: "Issuer funds the coupon schedule in USDY on Casper. On payment date, investors call claimDividend() to receive yield directly to their wallet. Idle capital auto-routes to mETH between payment periods.",
-              ai: "USDY + mETH yield on Casper",
+              desc: "Issuer funds the coupon schedule in CSPR on Casper. On payment date, investors call claimDividend() to receive yield directly to their wallet. Idle capital auto-routes to Staked CSPR (sCSPR) between payment periods.",
+              ai: "CSPR + sCSPR yield on Casper",
             },
           ].map((s, i) => (
             <div key={s.n} className="pr-8 pl-4 py-6"
@@ -348,7 +348,7 @@ export default function HomePage() {
               {[
                 { step: "1", href: "/kyc",       label: "Submit KYC",           desc: "AMLO (Cap.615) identity verification — wallet whitelisted on approval" },
                 { step: "2", href: "/subscribe", label: "Subscribe to NIBT",    desc: "Place order — mintForAsset() fires after compliance gate passes" },
-                { step: "3", href: "/portfolio", label: "Claim Coupons",        desc: "Track holdings and claim USDY-funded coupons on-chain" },
+                { step: "3", href: "/portfolio", label: "Claim Coupons",        desc: "Track holdings and claim CSPR-funded coupons on-chain" },
               ].map(({ step, href, label, desc }) => (
                 <li key={step}>
                   <a href={href} className="flex items-start gap-3 group">
@@ -431,20 +431,20 @@ export default function HomePage() {
               detail: "All 5 smart contracts deployed on Casper. ERC-3643 token mint, compliance gating, and T+2 atomic settlement — all on-chain.",
             },
             {
-              name: "USDY · Ondo Finance",
+              name: "CSPR · Native Token",
               color: "#16a34a",
               bg: "rgba(22,163,74,0.06)",
               border: "rgba(22,163,74,0.15)",
               role: "Coupon Yield & Autocompounding",
-              detail: "Issuer funds coupon schedules in USDY. Yield auto-compounds until payment date. Investors claim USDY directly — no bank wire needed.",
+              detail: "Issuer funds coupon schedules in native CSPR. Yield auto-compounds until payment date. Investors claim CSPR directly — no bank wire needed.",
             },
             {
-              name: "mETH Protocol",
+              name: "Staked CSPR (sCSPR)",
               color: "#0d9488",
               bg: "rgba(13,148,136,0.06)",
               border: "rgba(13,148,136,0.15)",
               role: "Idle Capital Yield Routing",
-              detail: "YieldAggregator.sol routes idle subscription capital to mETH between coupon periods. AI rebalances USDY/mETH split based on yield rates.",
+              detail: "AI routes idle subscription capital into Staked CSPR (sCSPR) between coupon periods, then back to liquid CSPR based on validator yield rates.",
             },
             {
               name: "EigenDA",
@@ -488,9 +488,9 @@ export default function HomePage() {
             </thead>
             <tbody>
               {[
-                { name: "Asia REIT",         color: "#16a34a", rules: "SFC REIT Code + tokenisation circular",   yield_: "Quarterly div · USDY autocompound",  settle: "T+2 · Casper", demo: "/tokenize" },
-                { name: "Corporate Bond",   color: "#1a56db", rules: "SFO s.103 + bond trust deed",            yield_: "Semi-annual coupon · mETH routing",  settle: "T+2 · Casper", demo: "/subscribe" },
-                { name: "Green Bond",       color: "#0d9488", rules: "ICMA GBP + ESG SFC certification",       yield_: "Semi-annual coupon · USDY",          settle: "T+2 · Casper", demo: "/tokenize" },
+                { name: "Asia REIT",         color: "#16a34a", rules: "SFC REIT Code + tokenisation circular",   yield_: "Quarterly div · CSPR autocompound",  settle: "T+2 · Casper", demo: "/tokenize" },
+                { name: "Corporate Bond",   color: "#1a56db", rules: "SFO s.103 + bond trust deed",            yield_: "Semi-annual coupon · sCSPR routing",  settle: "T+2 · Casper", demo: "/subscribe" },
+                { name: "Green Bond",       color: "#0d9488", rules: "ICMA GBP + ESG SFC certification",       yield_: "Semi-annual coupon · CSPR",          settle: "T+2 · Casper", demo: "/tokenize" },
                 { name: "Trade Receivable", color: "#7c3aed", rules: "Invoice + contract AI cross-validation", yield_: "Receivable maturity proceeds",        settle: "T+0 · Casper", demo: "/compliance" },
               ].map((row) => (
                 <tr key={row.name} style={{ borderBottom: "1px solid rgba(0,0,0,0.07)" }}>
@@ -522,7 +522,7 @@ export default function HomePage() {
               anchoring in ComplianceOracle. Full open-source codebase.
             </p>
             <div className="flex flex-wrap gap-2">
-              {["Casper Network", "ERC-3643", "Qwen2.5-72B", "EigenDA", "USDY (Ondo)", "mETH Protocol", "viem · wagmi · RainbowKit"].map((t) => (
+              {["Casper Network", "ERC-3643", "Qwen2.5-72B", "EigenDA", "CSPR (native)", "Staked CSPR (sCSPR)", "viem · wagmi · RainbowKit"].map((t) => (
                 <span key={t} className="text-[11px] px-2.5 py-1 rounded-md"
                   style={{ border: "1px solid rgba(0,0,0,0.10)", color: "#666666", background: "#ffffff" }}>
                   {t}
@@ -536,7 +536,7 @@ export default function HomePage() {
               { file: "IdentityRegistry.sol",  note: "KYC whitelist · AMLO Cap.615"        },
               { file: "ComplianceModule.sol",  note: "ERC-3643 hook · transfer guard"      },
               { file: "HarbourRWAToken.sol",   note: "ERC-3643 token · coupon schedules"   },
-              { file: "YieldAggregator.sol",   note: "USDY + mETH · AI rebalancing"        },
+              { file: "YieldAggregator.sol",   note: "CSPR + sCSPR · AI rebalancing"        },
             ].map((c, i, arr) => (
               <div key={c.file} className="flex items-center justify-between px-5 py-3"
                 style={{
@@ -559,7 +559,7 @@ export default function HomePage() {
           </h2>
           <p className="text-sm max-w-md mx-auto mb-8 leading-relaxed" style={{ color: "#666666" }}>
             AI compliance check → score anchored on Casper → KYC-gated mint →
-            USDY coupon claim. The complete RWA life-cycle, end-to-end.
+            CSPR coupon claim. The complete RWA life-cycle, end-to-end.
           </p>
           <div className="flex justify-center gap-3">
             <a href="/compliance"

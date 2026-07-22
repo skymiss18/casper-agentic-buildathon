@@ -112,6 +112,7 @@ export default function SubscribePage() {
   const [paying,        setPaying]        = useState(false);
   const [payError,      setPayError]      = useState<string | null>(null);
   const [paymentTxHash, setPaymentTxHash] = useState<string | null>(null);
+  const [paymentRef, setPaymentRef] = useState<string | null>(null);
   // Deterministic hash computed before broadcast; only used for display when the actual
   // broadcast fails, so the "real" paymentTxHash never points at a transaction that was
   // never submitted to the chain (that would make the confirm/retry button act on a fake tx).
@@ -333,6 +334,7 @@ export default function SubscribePage() {
       const data = await res.json();
       if (res.status === 202) {
         setPaymentTxHash(data.paymentTxHash ?? pmtTxHash ?? paymentTxHash ?? null);
+        setPaymentRef(data.paymentRef ?? null);
         setPaymentStatus(data.paymentStatus ?? "Pending");
         setPaymentNotice(data.message ?? "CSPR payment submitted; waiting for Casper finality before RWA token credit.");
         if (data.contractHash) setContractHash(data.contractHash);
@@ -347,6 +349,7 @@ export default function SubscribePage() {
       }
       setTxHash(data.txHash ?? null);
       setMintTxHash(data.mintTxHash ?? data.txHash ?? null);
+      setPaymentRef(data.paymentRef ?? null);
       setContractHash(data.contractHash ?? null);
       setPaymentStatus(data.paymentStatus ?? "Confirmed");
       setPaymentNotice(data.message ?? null);
@@ -413,6 +416,7 @@ export default function SubscribePage() {
 
       const pmtHash = attemptedHash ?? "";
       setPaymentTxHash(pmtHash);
+      setPaymentRef(`${refNum}:${pmtHash}`);
       setPaymentStatus("Submitted");
       setPaymentNotice("CSPR payment submitted; waiting for Casper confirmation before RWA token credit.");
       await handleConfirmSubscription(pmtHash, publicKey);
@@ -423,6 +427,51 @@ export default function SubscribePage() {
       setPaying(false);
     }
   }
+
+  async function refreshPendingSubscriptionStatus() {
+    if (!paymentRef) return;
+    try {
+      const res = await fetchApiWithSubpathFallback(`/api/subscribe?paymentRef=${encodeURIComponent(paymentRef)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) return;
+
+      if (data.paymentTxHash) setPaymentTxHash(data.paymentTxHash);
+      if (data.mintTxHash) {
+        setMintTxHash(data.mintTxHash);
+        setTxHash(data.mintTxHash);
+      }
+      if (data.paymentStatus) setPaymentStatus(data.paymentStatus);
+      if (typeof data.message === "string") setPaymentNotice(data.message);
+
+      if (data.failed) {
+        setSubmitError(data.error ?? "Subscription confirmation failed.");
+        setPayError(data.error ?? null);
+      }
+
+      if (data.done) {
+        setOnChain(true);
+        setSubmitted(true);
+      }
+    } catch {
+      // Keep current pending UI; polling is best-effort.
+    }
+  }
+
+  useEffect(() => {
+    if (paymentMethod !== "onchain") return;
+    if (!paymentRef) return;
+    if (submitted) return;
+    if (paymentStatus !== "Pending" && paymentStatus !== "Submitted") return;
+
+    void refreshPendingSubscriptionStatus();
+    const timer = setInterval(() => {
+      void refreshPendingSubscriptionStatus();
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [paymentMethod, paymentRef, paymentStatus, submitted]);
   function step2Valid() { return tokenCount >= MIN_TOKENS && tokenCount <= 100_000; }
   function step3Valid() { return declProspectus && declConflict && declRisk && declPiStatus; }
 
@@ -487,11 +536,95 @@ export default function SubscribePage() {
         <div className="rounded p-6 space-y-5" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
           <h2 className="text-base font-semibold text-slate-900">Eligibility Pre-check</h2>
           <p className="text-xs text-slate-500 -mt-2 leading-relaxed">
-            All three conditions must be satisfied before proceeding with subscription.
+            Your subscription eligibility is proven through a privacy-preserving compliance proof bound to your Casper wallet.
+            Complete all three confirmations before proceeding.
           </p>
 
-          <div className="space-y-4">
-            <label className="flex items-start gap-3 cursor-pointer group">
+          <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(29,78,216,0.05)", border: "1px solid rgba(29,78,216,0.2)" }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-700">Zero-Knowledge Compliance Proof</p>
+                <h3 className="text-sm font-semibold text-slate-800 mt-0.5">Wallet-bound eligibility credential</h3>
+              </div>
+              <span className="text-[10px] font-semibold rounded-full px-2 py-0.5"
+                style={{
+                  color: proofStatus?.proofVerified ? "#166534" : "#a16207",
+                  background: proofStatus?.proofVerified ? "rgba(22,163,74,0.12)" : "rgba(245,158,11,0.12)",
+                  border: `1px solid ${proofStatus?.proofVerified ? "rgba(22,163,74,0.28)" : "rgba(245,158,11,0.28)"}`,
+                }}>
+                {proofStatus?.proofVerified ? "Verified Proof On File" : "Proof Check Pending"}
+              </span>
+            </div>
+
+            <div>
+              {casperPublicKey ? (
+                <>
+                  <input
+                    type="text" readOnly
+                    value={casperPublicKey}
+                    className="w-full text-xs rounded px-2.5 py-1.5 font-mono outline-none"
+                    style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a", color: "#15803d" }}
+                  />
+                  <p className="text-[10px] text-emerald-600 mt-0.5">Auto-filled from connected Casper Wallet</p>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); void handleConnectCasperWalletStep1(); }}
+                    disabled={casperConnecting}
+                    className="text-xs rounded px-3 py-1.5 mt-1 font-medium disabled:opacity-60"
+                    style={{ background: "rgba(37,99,235,0.08)", border: "1px solid #2563eb", color: "#1d4ed8" }}
+                  >
+                    {casperConnecting ? "Connecting…" : "Connect Casper Wallet"}
+                  </button>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Eligibility proof is verified against your Casper wallet identity.
+                    {connectedWallet && " Your connected EVM wallet is not used for this check."}
+                  </p>
+                  {casperConnectError && (
+                    <p className="text-[11px] text-rose-600 mt-1">{casperConnectError}</p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {casperPublicKey && (
+              <div className="rounded px-2.5 py-2 text-[11px] leading-relaxed"
+                style={{ background: "#ffffff", border: "1px solid rgba(29,78,216,0.16)" }}>
+                {proofStatus === null ? (
+                  <span className="text-slate-400">Checking compliance credential…</span>
+                ) : !proofStatus.found || !proofStatus.hasCredential ? (
+                  <span className="text-amber-700">
+                    No compliance credential on file yet for this wallet. Subscription remains blocked until KYC is approved and a proof is issued.
+                  </span>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="font-medium text-slate-700">
+                      Compliance proof on file: {proofStatus.proofVerified ? (
+                        <span className="text-emerald-600">verified</span>
+                      ) : (
+                        <span className="text-amber-600">not yet verified</span>
+                      )}
+                    </div>
+                    <div className="text-slate-500">
+                      Scheme <span className="font-mono">{proofStatus.zkProofScheme ?? "—"}</span> · Circuit <span className="font-mono">{proofStatus.zkCircuitId ?? "—"}</span>
+                    </div>
+                    <div className="text-slate-500">
+                      Commitment <span className="font-mono">{proofStatus.credentialCommitment ?? "—"}</span>
+                    </div>
+                    <div className="text-slate-400 text-[10px] mt-1">
+                      This proof is generated at KYC approval time and re-verified server-side (including anti-reuse checks) when you submit.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer group rounded-lg px-3 py-2"
+              style={{ border: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.9)" }}>
               <input type="checkbox" checked={effectiveKycConfirmed} onChange={(e) => setKycConfirmed(e.target.checked)}
                 className="mt-0.5 shrink-0 accent-blue-500" />
               <div>
@@ -499,81 +632,15 @@ export default function SubscribePage() {
                   KYC Approved
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  I confirm my wallet has been successfully KYC-verified and approved by NexusRWA.
-                  My compliance score is ...70/100.{" "}
-                  <Link href="/kyc" className="text-blue-400 hover:underline">Complete KYC first &rarr;</Link>
-                  <div className="mt-2">
-                    <>
-                        {casperPublicKey ? (
-                          <>
-                            <input
-                              type="text" readOnly
-                              value={casperPublicKey}
-                              className="w-full text-xs rounded px-2.5 py-1.5 font-mono outline-none mt-1"
-                              style={{ background: "rgba(22,163,74,0.07)", border: "1px solid #16a34a", color: "#15803d" }}
-                            />
-                            <p className="text-[10px] text-emerald-600 mt-0.5">Auto-filled from connected Casper Wallet</p>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); void handleConnectCasperWalletStep1(); }}
-                              disabled={casperConnecting}
-                              className="text-xs rounded px-3 py-1.5 mt-1 font-medium disabled:opacity-60"
-                              style={{ background: "rgba(37,99,235,0.08)", border: "1px solid #2563eb", color: "#1d4ed8" }}
-                            >
-                              {casperConnecting ? "Connecting…" : "Connect Casper Wallet"}
-                            </button>
-                            <p className="text-[11px] text-slate-500 mt-1">
-                              KYC/compliance eligibility is checked against your Casper wallet, not an EVM wallet.
-                              {connectedWallet && " Your connected EVM wallet is not used for this check."}
-                            </p>
-                            {casperConnectError && (
-                              <p className="text-[11px] text-rose-600 mt-1">{casperConnectError}</p>
-                            )}
-                          </>
-                        )}
-                      </>
-                  </div>
-                  {casperPublicKey && (
-                    <div className="mt-2 rounded px-2.5 py-2 text-[11px] leading-relaxed"
-                      style={{ background: "rgba(15,23,42,0.03)", border: "1px solid rgba(0,0,0,0.08)" }}>
-                      {proofStatus === null ? (
-                        <span className="text-slate-400">Checking compliance credential…</span>
-                      ) : !proofStatus.found || !proofStatus.hasCredential ? (
-                        <span className="text-amber-600">
-                          No compliance credential on file yet for this wallet — subscription will be rejected until KYC is approved and a proof is issued.
-                        </span>
-                      ) : (
-                        <div className="space-y-1">
-                          <div className="font-medium text-slate-700">
-                            Compliance proof on file: {proofStatus.proofVerified ? (
-                              <span className="text-emerald-600">verified</span>
-                            ) : (
-                              <span className="text-amber-600">not yet verified</span>
-                            )}
-                          </div>
-                          <div className="text-slate-500">
-                            Scheme <span className="font-mono">{proofStatus.zkProofScheme ?? "—"}</span> · Circuit{" "}
-                            <span className="font-mono">{proofStatus.zkCircuitId ?? "—"}</span>
-                          </div>
-                          <div className="text-slate-500">
-                            Commitment <span className="font-mono">{proofStatus.credentialCommitment ?? "—"}</span>
-                          </div>
-                          <div className="text-slate-400 text-[10px] mt-1">
-                            This proof was generated when your KYC was approved. It will be re-verified server-side (and checked against
-                            reuse) at the moment you submit this subscription.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  I confirm this wallet has passed KYC and meets the minimum compliance threshold for subscription.
+                  <span className="ml-1">Need to complete KYC first?</span>{" "}
+                  <Link href="/kyc" className="text-blue-500 hover:underline">Go to KYC &rarr;</Link>
                 </div>
               </div>
             </label>
 
-            <label className="flex items-start gap-3 cursor-pointer group">
+            <label className="flex items-start gap-3 cursor-pointer group rounded-lg px-3 py-2"
+              style={{ border: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.9)" }}>
               <input type="checkbox" checked={piConfirmed} onChange={(e) => setPiConfirmed(e.target.checked)}
                 className="mt-0.5 shrink-0 accent-blue-500" />
               <div>
@@ -588,7 +655,8 @@ export default function SubscribePage() {
               </div>
             </label>
 
-            <label className="flex items-start gap-3 cursor-pointer group">
+            <label className="flex items-start gap-3 cursor-pointer group rounded-lg px-3 py-2"
+              style={{ border: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.9)" }}>
               <input type="checkbox" checked={notUSPerson} onChange={(e) => setNotUSPerson(e.target.checked)}
                 className="mt-0.5 shrink-0 accent-blue-500" />
               <div>
@@ -630,6 +698,7 @@ export default function SubscribePage() {
                 setAssetName(nextAssetName);
                 setRefNum(makeRefNum(nextAssetName));
                 setPaymentTxHash(null);
+                setPaymentRef(null);
                 setMintTxHash(null);
                 setPaymentStatus("Idle");
                 setPaymentNotice(null);
@@ -669,6 +738,7 @@ export default function SubscribePage() {
                 onChange={(e) => {
                   setTokens(e.target.value);
                   setPaymentTxHash(null);
+                  setPaymentRef(null);
                   setMintTxHash(null);
                   setPaymentStatus("Idle");
                   setPaymentNotice(null);
@@ -1025,7 +1095,9 @@ export default function SubscribePage() {
             ) : (
               <button
                 onClick={() => {
-                  if (paymentTxHash) {
+                  if (paymentRef) {
+                    void refreshPendingSubscriptionStatus();
+                  } else if (paymentTxHash) {
                     void handleConfirmSubscription(paymentTxHash, casperPublicKey ?? effectiveWalletAddress);
                   } else {
                     void handleOnChainPayment();
@@ -1038,8 +1110,10 @@ export default function SubscribePage() {
                   ? "Waiting for Casper Wallet..."
                   : submitting
                     ? `Crediting ${assetCode}...`
-                    : paymentTxHash
-                      ? "Retry payment confirmation and RWA credit"
+                    : paymentRef
+                      ? "Refresh payment and credit status"
+                      : paymentTxHash
+                        ? "Retry payment confirmation and RWA credit"
                       : `Pay ${csprAmount.toFixed(4)} CSPR via Casper Wallet`}
               </button>
             )}

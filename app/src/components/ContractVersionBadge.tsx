@@ -10,7 +10,7 @@ export interface ContractVersionBadgeProps {
 export default function ContractVersionBadge({ version, isUpgradable, label = "IdentityRegistry" }: ContractVersionBadgeProps) {
   if (!version) {
     return (
-      <span className="text-[10px] text-slate-400 italic">{label}: version unknown (not yet deployed)</span>
+      <span className="text-[10px] text-slate-400 italic">{label}: governance version unknown (not yet deployed)</span>
     );
   }
   return (
@@ -20,7 +20,7 @@ export default function ContractVersionBadge({ version, isUpgradable, label = "I
     >
       {label} {version}
       <span style={{ color: isUpgradable ? "#16a34a" : "#dc2626" }}>
-        · Upgradable: {isUpgradable ? "Yes" : "No"}
+        · Upgradeable Governance: {isUpgradable ? "Enabled" : "Disabled"}
       </span>
     </span>
   );

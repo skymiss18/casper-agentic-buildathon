@@ -175,7 +175,7 @@ export default function PortfolioPage() {
   // ── Yield rebalance panel ───────────────────────────────────────────────────
   const [rebalancing,      setRebalancing]      = useState(false);
   const [rebalanceResult,  setRebalanceResult]  = useState<{
-    usdyPct: number; methPct: number; usdyApy: string; methApy: string;
+    csprPct: number; scsprPct: number; csprApy: string; scsprApy: string;
     weightedApy: string; rationale: string; txHash: string | null; onChain: boolean;
   } | null>(null);
   const [rebalanceError,   setRebalanceError]   = useState<string | null>(null);
@@ -191,6 +191,27 @@ export default function PortfolioPage() {
     }
     return data as PortfolioSummary;
   }
+
+  // Silently restore a previously-approved Casper Wallet session on mount (no popup) so
+  // returning users don't need to click "Connect" again on every page refresh.
+  useEffect(() => {
+    let active = true;
+    async function restoreCasperSession() {
+      try {
+        const provider = getCasperWalletProvider();
+        const alreadyConnected = await provider.isConnected();
+        if (!alreadyConnected) return;
+        const activePublicKey = await provider.getActivePublicKey();
+        if (active && activePublicKey) setWallet(activePublicKey);
+      } catch {
+        // Casper Wallet extension not installed, or no prior session — ignore silently.
+      }
+    }
+    void restoreCasperSession();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!wallet || !walletIsEvm) {
@@ -408,8 +429,8 @@ export default function PortfolioPage() {
         if (!res.ok) {
           throw new Error(data.error ?? "Failed to fund coupon");
         }
-        const payoutUsdy = data.payout ? (Number(data.payout) / 1e18).toFixed(2) : "?";
-        setCouponNotice(`Issuer sent ${payoutUsdy} USDY directly to your wallet. Tx: ${data.txHash.slice(0, 10)}...`);
+        const payoutCspr = data.payout ? (Number(data.payout) / 1e18).toFixed(2) : "?";
+        setCouponNotice(`Issuer sent ${payoutCspr} CSPR directly to your wallet. Tx: ${data.txHash.slice(0, 10)}...`);
       } else if (entry.canClaim) {
         const tokenAddr = process.env.NEXT_PUBLIC_HARBOUR_RWA_TOKEN_ADDRESS as `0x${string}` | undefined;
         if (!tokenAddr || tokenAddr === "0x0000000000000000000000000000000000000000") {
@@ -617,7 +638,7 @@ export default function PortfolioPage() {
                 <div className="text-[11px] text-slate-600 mt-1">
                   {hibtPosition?.source === "on-chain"
                     ? hibtPosition.claimEnabled
-                      ? `Schedule read from HarbourRWAToken dividend records. Coupons are funded and claimed in ${hibtPosition.couponToken}.`
+                      ? `Schedule read from HarbourRWAToken dividend records. Coupons are funded and claimed in ${hibtPosition.couponToken}.`  
                       : "Schedule read from HarbourRWAToken dividend records. Redeploy the latest token contract to enable claimable coupons."
                     : "Using estimated schedule until dividend records are deployed."}
                 </div>
@@ -690,7 +711,7 @@ export default function PortfolioPage() {
                               disabled={couponBusy === actionKey}
                               className="px-3 py-1.5 text-[10px] font-semibold rounded text-white transition-opacity disabled:opacity-50 hover:opacity-90"
                               style={{ background: "#1d4ed8", border: "1px solid #1a56db" }}>
-                              {couponBusy === actionKey ? "Claiming..." : `Claim ${hibtPosition?.couponToken ?? "USDY"}`}
+                              {couponBusy === actionKey ? "Claiming..." : `Claim ${hibtPosition?.couponToken ?? "CSPR"}`}
                             </button>
                           ) : entry.canFund ? (
                             <span className="text-[10px] text-slate-500 italic">Distributed by Issuer</span>
@@ -711,7 +732,7 @@ export default function PortfolioPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-sm font-semibold text-slate-900">Casper Yield Routing</div>
-                <div className="text-[11px] text-slate-600 mt-0.5">USDY (Ondo) + mETH Protocol · AI-driven auto-rebalance</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">CSPR (native) + Staked CSPR (sCSPR) · AI-driven auto-rebalance</div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex gap-0 rounded overflow-hidden" style={{ border: "1px solid rgba(0,0,0,0.10)" }}>
@@ -739,8 +760,8 @@ export default function PortfolioPage() {
             {!rebalanceResult ? (
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "USDY", sublabel: "Ondo Finance · USD T-bill", apy: "5.00%", pct: 55, color: "#1a56db", tag: "Mainnet: 0x5bE2...A6" },
-                  { label: "mETH", sublabel: "Casper staking",         apy: "3.80%", pct: 45, color: "#8b5cf6", tag: "Mainnet: 0xcDA8...B0" },
+                  { label: "CSPR",  sublabel: "Native, liquid · no lock-up",       apy: "5.00%",  pct: 55, color: "#1a56db", tag: "cspr.live: native token" },
+                  { label: "sCSPR", sublabel: "Staked CSPR · validator delegation", apy: "10.85%", pct: 45, color: "#8b5cf6", tag: "cspr.live: Staked CSPR" },
                 ].map((item) => (
                   <div key={item.label} className="rounded p-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                     <div className="flex items-center justify-between mb-2">
@@ -769,8 +790,8 @@ export default function PortfolioPage() {
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { label: "USDY", pct: rebalanceResult.usdyPct, apy: rebalanceResult.usdyApy, color: "#1a56db" },
-                    { label: "mETH", pct: rebalanceResult.methPct, apy: rebalanceResult.methApy, color: "#8b5cf6" },
+                    { label: "CSPR",  pct: rebalanceResult.csprPct,  apy: rebalanceResult.csprApy,  color: "#1a56db" },
+                    { label: "sCSPR", pct: rebalanceResult.scsprPct, apy: rebalanceResult.scsprApy, color: "#8b5cf6" },
                   ].map((item) => (
                     <div key={item.label} className="rounded p-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
                       <div className="flex justify-between items-center mb-2">
@@ -882,8 +903,8 @@ export default function PortfolioPage() {
               </div>
               <div className="px-5 pt-2 pb-4 space-y-4">
                 {[
-                  { name: "Ondo USDY",     desc: "USD yield from T-bills", apy: "5.0%", share: "55%" },
-                  { name: "mETH Protocol", desc: "ETH staking yield",      apy: "3.8%", share: "45%" },
+                  { name: "CSPR",  desc: "Native, liquid · no lock-up",           apy: "5.0%",  share: "55%" },
+                  { name: "sCSPR", desc: "Staked CSPR · validator delegation yield", apy: "10.85%", share: "45%" },
                 ].map((y) => (
                   <div key={y.name} className="flex items-center justify-between">
                     <div>

@@ -1,24 +1,31 @@
 # NexusRWA
 
-End-to-end AI-assisted RWA issuance workflow on Casper Testnet, with compliance scoring, identity gating, and coupon lifecycle recorded through Casper smart contracts.
+**NexusRWA** is an agentic, AI-assisted Real-World Asset (RWA) issuance platform built for the **Casper Agentic Buildathon 2026 - Final Round** (Casper Innovation Track: Agentic AI x DeFi x RWA). It lets an issuer draft an offering, have an AI agent score it against jurisdictional compliance rules, route it through human regulator/KYC review, and then mint, subscribe, and settle a coupon-bearing token whose full lifecycle is recorded on **Casper Testnet**.
 
+The project directly targets the buildathon's "AI-Driven Compliance & KYC" and "RWA Oracle Agent" build directions: an AI agent handles document analysis and compliance scoring off-chain, anchors verifiable evidence on-chain via a Casper `ComplianceOracle` contract, and gates minting/subscription through an on-chain `IdentityRegistry`, while humans (regulator, KYC admin) retain final authority — combining autonomous AI agency with trust-minimized, auditable on-chain state.
 
-## Final Round Qualification Checklist
+## Why This Project Fits the Final Round
 
-Use this section as the source-of-truth checklist for final-round review.
+| Judging Criterion | How NexusRWA Delivers |
+|---|---|
+| **Technical Execution** | Three Rust/Odra smart contracts (`ComplianceOracle`, `IdentityRegistry`, `TokenCoupon`) deployed and tested on Casper Testnet, backed by a Next.js/TypeScript app with real API routes, not just static mockups. See [Architecture](#architecture) and [Judge Quick Proof](#judge-quick-proof-3-5-minute-scan). |
+| **Innovation & Originality** | Combines AI-generated compliance scoring, on-chain score anchoring, and identity-gated token minting into a single reproducible pipeline — an agentic compliance officer that a human can audit and override. |
+| **Use of AI / Agentic Systems** | An AI agent drafts prospectus content, scores it against `app/compliance-rules/sfc-rules.json`, and produces a report hash that is submitted on-chain; an advisor flow assists investors during subscription. |
+| **Real-World Applicability** | Rules model real securities-style compliance concepts (issuer disclosure, investor eligibility, coupon terms) and include asset-class packs for bonds, trade receivables, green bonds, and REITs. |
+| **User Experience & Design** | End-to-end UI covering issuer, regulator, KYC admin, and investor journeys (`/prospectus`, `/tokenize`, `/compliance`, `/regulator`, `/kyc`, `/subscribe`, `/portfolio`). |
+| **Working Smart Contracts** | Live Casper Testnet deploy hash, contract hash, and explorer link recorded in `app/data/deployments.json` and reproduced in this README. |
+| **Long-Term Launch Plans** | See [Roadmap](#roadmap) for the 3-month and 6-12 month plan to harden and expand the product. |
+| **Potential for Long-Term Impact** | A reusable agentic-compliance pattern that can be extended to new jurisdictions and asset classes on Casper, growing the ecosystem's RWA tooling. |
 
-| Requirement | Status | Evidence / Action |
-|---|---|---|
-| Public GitHub repository with clear naming | Complete | Repository is public and named `casper-agentic-buildathon` |
-| Repository description, website, and topics (`casper-blockchain`, `casper-network`, `buildathon`) | Pending metadata verification on GitHub UI | See "Repository Metadata (GitHub)" section below |
-| Comprehensive README | Complete (this file) | Architecture, setup, deployment, and reproducible verification steps |
-| Community standards (Code of Conduct, Contributing, Security Policy, Support) | Partial | Workflow exists in `.github/workflows`; community health files should be added under `.github/` |
-| CodeQL enabled | Pending verification on GitHub Security tab | See "Security and CI" section |
-| Dependabot alerts + updates enabled | Pending verification on GitHub Security tab | See "Security and CI" section |
-| High+ security alerts fixed | Pending verification on GitHub Security tab | Final submission target: 0 open High/Critical alerts |
-| Functional MVP on Casper Testnet | Complete | Deployment record and explorer transaction in `app/data/deployments.json` |
-| Intuitive workflow + demo video or DoraHacks playbook | Partial | Playbook below; replace demo placeholder with final URL |
-| Contract package hashes and sample Testnet transactions documented on BUIDL page | Partial | Contract/deploy evidence table below; fill package hash entries if redeployed |
+## Submission Essentials
+
+Per the official Final Round rules (`document/finalround.md`), every project must ship three things — here is where to find each in this repository:
+
+| Required Item | Where It Is |
+|---|---|
+| Working prototype on Casper Testnet with a transaction-producing on-chain component | [Judge Quick Proof](#judge-quick-proof-3-5-minute-scan) and `app/data/deployments.json` |
+| Open-source GitHub repository with README + usage instructions | This repository, plus [Quick Start](#quick-start) and [Reviewer Playbook](#reviewer-playbook-no-marketing-8-12-minutes) |
+| Public demo video | See [Demo and BUIDL Links](#demo-and-buidl-links) (replace placeholder before final submission) |
 
 
 ## Repository Metadata (GitHub)
@@ -364,17 +371,16 @@ Expected: end-to-end workflow is navigable and actions produce corresponding dat
 3. Public demo video URL
 4. Short reproducible test steps (copy from this section)
 
-## How This README Maps to DoraHacks Judging
+## How This Project Meets Buildathon Eligibility
 
-| Judging dimension | Where to evaluate in this repo |
+| Eligibility Criterion (from `document/finalround.md`) | This Project |
 |---|---|
-| Technical Execution | Casper contracts in `app/contracts-casper`, API flows in `app/src/app/api` |
-| Innovation and Originality | AI scoring + on-chain compliance anchoring workflow |
-| Use of AI / Agentic Systems | Drafting/scoring/advisor flows in UI + API route design |
-| Real-World Applicability | SFC-oriented rules in `app/compliance-rules/sfc-rules.json`, bond corpus in `app/test/HIBT-Prospectus.txt` |
-| UX and Product Design | End-user pages under `app/src/app/*` |
-| Working Smart Contracts | Testnet deploy record in `app/data/deployments.json` + explorer URL |
-| Long-Term Launch Plan | Roadmap below |
+| Team size unrestricted | Submitted as a single repository, works for solo or team credit |
+| Original, newly developed code/content for the buildathon | All code, contracts, and rules in this repository were built for this event |
+| Focus on Agentic AI with DeFi and/or RWA on Casper | AI-driven compliance scoring + identity-gated token issuance on Casper Testnet |
+| Fair play / anti-plagiarism / Code of Conduct | Followed throughout development; no third-party proprietary code reused |
+
+Official reference dates: Qualification Round opens June 1, 2026; submission deadline July 7, 2026; Final Round runs July 13-26, 2026.
 
 ## Roadmap
 

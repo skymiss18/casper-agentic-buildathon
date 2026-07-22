@@ -243,7 +243,7 @@ export async function GET(req: NextRequest) {
       nextCouponPayoutUsd: upcomingPayoutUsd,
       source: onChainHistory ? "on-chain" : "estimated-schedule",
       claimEnabled,
-      couponToken: "USDY",
+      couponToken: "CSPR",
     },
     couponHistory: couponHistory.map((entry) => ({
       ...entry,

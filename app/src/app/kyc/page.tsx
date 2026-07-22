@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { connectCasperWallet } from "@/lib/casper-wallet";
+import { connectCasperWallet, getCasperWalletProvider } from "@/lib/casper-wallet";
 import { isCasperAddressLike } from "@/lib/casper-address";
 import ComplianceCredentialCard from "@/components/ComplianceCredentialCard";
 import DataBoundaryPanel from "@/components/DataBoundaryPanel";
@@ -185,8 +185,32 @@ export default function KYCPage() {
     fetch("/api/kyc/applications")
       .then((r) => r.json())
       .then((d) => setMyRecords((d.applications ?? []) as KYCRecord[]))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setRecordsLoading(false));
   }, [appId]); // refresh after new submission
+
+  // Silently restore a previously-approved Casper Wallet session on mount (no popup) so
+  // the wallet address auto-fills even if the extension was connected on another page.
+  useEffect(() => {
+    let active = true;
+    async function restoreCasperSession() {
+      try {
+        const provider = getCasperWalletProvider();
+        const alreadyConnected = await provider.isConnected();
+        if (!alreadyConnected) return;
+        const publicKey = await provider.getActivePublicKey();
+        if (active && publicKey) {
+          setForm((prev) => (prev.walletAddress ? prev : { ...prev, walletAddress: publicKey }));
+        }
+      } catch {
+        // Casper Wallet extension not installed, or no prior session — ignore silently.
+      }
+    }
+    void restoreCasperSession();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function handleSelectRecord(rec: KYCRecord) {
     setSelectedRecord(rec);
@@ -308,6 +332,37 @@ export default function KYCPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <section className="rounded-2xl p-5 sm:p-6 mb-5" style={{ background: "linear-gradient(135deg, rgba(29,78,216,0.10), rgba(22,163,74,0.08))", border: "1px solid rgba(29,78,216,0.22)" }}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-700">AI-Driven Compliance & KYC via Zero-Knowledge</p>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 mt-1">Investor KYC Application</h1>
+            <p className="text-sm text-slate-700 mt-2 leading-relaxed">
+              Submit documents for off-chain AI and officer verification. Once approved, your wallet receives a privacy-preserving
+              on-chain compliance credential state used by Casper contracts for policy gating.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] w-full sm:w-auto">
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.18)" }}>
+              <div className="text-slate-500">Step 1</div>
+              <div className="font-semibold text-slate-800">Off-chain screening</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.18)" }}>
+              <div className="text-slate-500">Step 2</div>
+              <div className="font-semibold text-slate-800">ZK commitment issuance</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.18)" }}>
+              <div className="text-slate-500">Step 3</div>
+              <div className="font-semibold text-slate-800">Autonomous monitoring</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.18)" }}>
+              <div className="text-slate-500">Step 4</div>
+              <div className="font-semibold text-slate-800">No raw data on-chain</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex gap-5 items-start">
 
         {/* ── Left sidebar: My KYC Applications ──────────────────────────── */}
@@ -371,14 +426,20 @@ export default function KYCPage() {
         <div className="flex-1 min-w-0">
 
       {/* Page header */}
-      <div className="mb-8 pb-5" style={{ borderBottom: "1px solid #152538" }}>
-        <h1 className="text-2xl font-bold text-gray-900">Investor KYC Application</h1>
-        <p className="text-sm text-slate-600 mt-1.5 max-w-xl">
-          Complete AMLO (Cap. 615)-compliant identity verification to subscribe to NIBT.
-          Your wallet will be whitelisted on{" "}
-          <span className="font-mono text-blue-400 text-xs">IdentityRegistry.sol</span>{" "}
-          after document review.
-        </p>
+      <div className="mb-6 rounded-xl p-4" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="md:col-span-2">
+            <h2 className="text-lg font-semibold text-gray-900">AMLO Verification Workflow</h2>
+            <p className="text-sm text-slate-600 mt-1.5 max-w-2xl leading-relaxed">
+              Complete identity and suitability checks to subscribe to NIBT. Approval writes compliance eligibility state
+              to <span className="font-mono text-blue-600">IdentityRegistry.sol</span> without publishing your underlying personal documents.
+            </p>
+          </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.20)" }}>
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700">Privacy posture</div>
+            <p className="text-[11px] text-slate-600 mt-1">Only commitments, proofs, risk band, and expiry are stored on-chain.</p>
+          </div>
+        </div>
       </div>
 
       {/* Selected record status banner */}

@@ -12,8 +12,8 @@ type RiskProfile = "conservative" | "moderate" | "aggressive";
 interface RebalanceRequest {
   walletAddress: `0x${string}`;
   riskProfile:   RiskProfile;
-  usdyApyBps?:   number;  // optional override; fetched on-chain if not supplied
-  methApyBps?:   number;
+  csprApyBps?:   number;  // optional override; fetched on-chain if not supplied
+  scsprApyBps?:  number;
 }
 
 function getLLMClient(): OpenAI | null {
@@ -24,43 +24,43 @@ function getLLMClient(): OpenAI | null {
 }
 
 // ── Default target allocations by risk profile ────────────────────────────────
-// USDY: stablecoin yield (lower risk, lower return ceiling)
-// mETH: ETH staking yield (higher risk, higher return ceiling)
-const RISK_DEFAULTS: Record<RiskProfile, { usdyPct: number; reason: string }> = {
-  conservative: { usdyPct: 80, reason: "80% USDY / 20% mETH — capital preservation priority" },
-  moderate:     { usdyPct: 55, reason: "55% USDY / 45% mETH — balanced risk/return" },
-  aggressive:   { usdyPct: 25, reason: "25% USDY / 75% mETH — maximise ETH-correlated yield" },
+// CSPR: native, liquid, no lock-up (lower risk, lower return ceiling)
+// sCSPR (Staked CSPR): native validator delegation yield (higher risk — unbonding period, slashing)
+const RISK_DEFAULTS: Record<RiskProfile, { csprPct: number; reason: string }> = {
+  conservative: { csprPct: 80, reason: "80% CSPR / 20% sCSPR — capital preservation priority" },
+  moderate:     { csprPct: 55, reason: "55% CSPR / 45% sCSPR — balanced risk/return" },
+  aggressive:   { csprPct: 25, reason: "25% CSPR / 75% sCSPR — maximise staking-correlated yield" },
 };
 
 async function getAIAllocation(
   riskProfile: RiskProfile,
-  usdyApy: number,
-  methApy: number
-): Promise<{ usdyPct: number; rationale: string }> {
+  csprApy: number,
+  scsprApy: number
+): Promise<{ csprPct: number; rationale: string }> {
   const client = getLLMClient();
 
   if (!client) {
     // Rule-based fallback
     const d = RISK_DEFAULTS[riskProfile];
-    // Slight dynamic adjustment: if mETH APY > USDY APY by >100bps, shift 5% more to mETH
-    let adjusted = d.usdyPct;
-    if (methApy - usdyApy > 100 && riskProfile !== "conservative") adjusted = Math.max(20, adjusted - 5);
-    if (usdyApy - methApy > 100) adjusted = Math.min(90, adjusted + 5);
+    // Slight dynamic adjustment: if sCSPR APY > CSPR APY by >100bps, shift 5% more to sCSPR
+    let adjusted = d.csprPct;
+    if (scsprApy - csprApy > 100 && riskProfile !== "conservative") adjusted = Math.max(20, adjusted - 5);
+    if (csprApy - scsprApy > 100) adjusted = Math.min(90, adjusted + 5);
     return {
-      usdyPct: adjusted,
-      rationale: `[rule-based] ${d.reason}. USDY ${(usdyApy / 100).toFixed(2)}% APY, mETH ${(methApy / 100).toFixed(2)}% APY.`,
+      csprPct: adjusted,
+      rationale: `[rule-based] ${d.reason}. CSPR ${(csprApy / 100).toFixed(2)}% APY, sCSPR ${(scsprApy / 100).toFixed(2)}% APY.`,
     };
   }
 
   const prompt = `You are a DeFi yield optimizer for an institutional RWA platform on Casper Network.
 Current APY rates:
-- USDY (Ondo Finance, USD T-bill backed): ${(usdyApy / 100).toFixed(2)}% APY
-- mETH (Casper ETH staking): ${(methApy / 100).toFixed(2)}% APY
+- CSPR (native token, liquid, no lock-up): ${(csprApy / 100).toFixed(2)}% APY
+- sCSPR (Staked CSPR, native validator delegation yield): ${(scsprApy / 100).toFixed(2)}% APY
 
 Investor risk profile: ${riskProfile}
 
-Determine the optimal % allocation to USDY (0-100). The rest goes to mETH.
-Respond ONLY with valid JSON: { "usdyPct": <integer 0-100>, "rationale": "<max 100 chars>" }`;
+Determine the optimal % allocation to CSPR (0-100). The rest goes to sCSPR.
+Respond ONLY with valid JSON: { "csprPct": <integer 0-100>, "rationale": "<max 100 chars>" }`;
 
   try {
     const res = await client.chat.completions.create({
@@ -72,11 +72,11 @@ Respond ONLY with valid JSON: { "usdyPct": <integer 0-100>, "rationale": "<max 1
     });
     const text = res.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(text);
-    const usdyPct = Math.min(100, Math.max(0, parseInt(parsed.usdyPct ?? 50)));
-    return { usdyPct, rationale: parsed.rationale ?? "AI allocation" };
+    const csprPct = Math.min(100, Math.max(0, parseInt(parsed.csprPct ?? 50)));
+    return { csprPct, rationale: parsed.rationale ?? "AI allocation" };
   } catch {
     const d = RISK_DEFAULTS[riskProfile];
-    return { usdyPct: d.usdyPct, rationale: d.reason };
+    return { csprPct: d.csprPct, rationale: d.reason };
   }
 }
 
@@ -84,9 +84,9 @@ Respond ONLY with valid JSON: { "usdyPct": <integer 0-100>, "rationale": "<max 1
 // POST /api/advisor/rebalance
 // Body: { walletAddress, riskProfile }
 // 1. Reads current APY from YieldAggregator on-chain (or uses defaults)
-// 2. AI determines optimal USDY/mETH split
+// 2. AI determines optimal CSPR/sCSPR split
 // 3. Calls autoRebalance() on-chain
-// 4. Returns { usdyPct, rationale, txHash }
+// 4. Returns { csprPct, rationale, txHash }
 export async function POST(req: NextRequest) {
   try {
     const body: RebalanceRequest = await req.json();
@@ -104,8 +104,8 @@ export async function POST(req: NextRequest) {
     const isConfigured = privateKey && yieldAddr !== "0x0000000000000000000000000000000000000000";
 
     // ── 1. Get current APY rates ────────────────────────────────────────────
-    let usdyApy = body.usdyApyBps ?? 500;  // default 5.00%
-    let methApy = body.methApyBps ?? 380;  // default 3.80%
+    let csprApy = body.csprApyBps ?? 500;   // default 5.00%
+    let scsprApy = body.scsprApyBps ?? 1085; // default 10.85% (cspr.live network APY)
 
     if (isConfigured) {
       try {
@@ -114,13 +114,13 @@ export async function POST(req: NextRequest) {
           abi: YIELD_AGGREGATOR_ABI,
           functionName: "getYieldInfo",
         }) as readonly [number, number, bigint];
-        usdyApy = info[0];
-        methApy = info[1];
+        csprApy = info[0];
+        scsprApy = info[1];
       } catch { /* use defaults */ }
     }
 
     // ── 2. AI computes allocation ───────────────────────────────────────────
-    const { usdyPct, rationale } = await getAIAllocation(riskProfile, usdyApy, methApy);
+    const { csprPct, rationale } = await getAIAllocation(riskProfile, csprApy, scsprApy);
 
     // ── 3. Submit rebalance on-chain ────────────────────────────────────────
     let txHash: string | null = null;
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
           address: yieldAddr,
           abi: YIELD_AGGREGATOR_ABI,
           functionName: "autoRebalance",
-          args: [walletAddress, usdyPct, rationale.slice(0, 120)],
+          args: [walletAddress, csprPct, rationale.slice(0, 120)],
           maxFeePerGas: safeGasPrice,
           maxPriorityFeePerGas: safeGasPrice,
         });
@@ -149,11 +149,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       walletAddress,
       riskProfile,
-      usdyPct,
-      methPct:    100 - usdyPct,
-      usdyApy:   (usdyApy / 100).toFixed(2) + "%",
-      methApy:   (methApy / 100).toFixed(2) + "%",
-      weightedApy: ((usdyPct * usdyApy + (100 - usdyPct) * methApy) / 10000).toFixed(2) + "%",
+      csprPct,
+      scsprPct:    100 - csprPct,
+      csprApy:   (csprApy / 100).toFixed(2) + "%",
+      scsprApy:  (scsprApy / 100).toFixed(2) + "%",
+      weightedApy: ((csprPct * csprApy + (100 - csprPct) * scsprApy) / 10000).toFixed(2) + "%",
       rationale,
       onChain,
       txHash,
@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
 
   if (!isConfigured) {
     return NextResponse.json({
-      usdyApy: "5.00%", methApy: "3.80%",
+      csprApy: "5.00%", scsprApy: "10.85%",
       lastUpdate: null, lastRebalance: null,
       note: "Contracts not yet deployed",
     });
@@ -200,9 +200,9 @@ export async function GET(req: NextRequest) {
         if (r[0] > BigInt(0)) {
           lastRebalanceData = {
             timestamp:   new Date(Number(r[0]) * 1000).toISOString(),
-            usdyShares:  r[1].toString(),
-            methShares:  r[2].toString(),
-            usdyPct:     r[3],
+            csprShares:  r[1].toString(),
+            scsprShares: r[2].toString(),
+            csprPct:     r[3],
             aiRationale: r[4],
           };
         }
@@ -210,8 +210,8 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      usdyApy:       (info[0] / 100).toFixed(2) + "%",
-      methApy:       (info[1] / 100).toFixed(2) + "%",
+      csprApy:       (info[0] / 100).toFixed(2) + "%",
+      scsprApy:      (info[1] / 100).toFixed(2) + "%",
       lastUpdate:    new Date(Number(info[2]) * 1000).toISOString(),
       lastRebalance: lastRebalanceData,
     });
@@ -219,3 +219,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "read error" }, { status: 500 });
   }
 }
+

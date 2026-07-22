@@ -143,12 +143,31 @@ export default async function EvidencePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
-      <div className="rounded-xl p-5" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>
-        <h1 className="text-2xl font-semibold text-slate-900">Judge Evidence Center</h1>
-        <p className="text-sm text-slate-600 mt-2 max-w-3xl">
-          This page aggregates live Casper-oriented evidence across deployment, privacy-preserving KYC credential lifecycle,
-          and subscription execution outcomes. Sensitive user documents remain off-chain.
+      <div className="rounded-2xl p-5 sm:p-6" style={{ background: "linear-gradient(135deg, rgba(29,78,216,0.10), rgba(14,165,233,0.08))", border: "1px solid rgba(29,78,216,0.22)" }}>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-700">Track-4 Proof Board</p>
+        <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 mt-1">Judge Evidence Center</h1>
+        <p className="text-sm text-slate-700 mt-2 max-w-3xl leading-relaxed">
+          Live evidence of AI-driven compliance: off-chain document screening, zero-knowledge credential commitment issuance,
+          autonomous lifecycle monitoring, and upgradeable Casper contract governance.
         </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 text-[11px]">
+          <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.15)" }}>
+            <div className="text-slate-500">1</div>
+            <div className="font-semibold text-slate-800">AI verification</div>
+          </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.15)" }}>
+            <div className="text-slate-500">2</div>
+            <div className="font-semibold text-slate-800">ZK commitment</div>
+          </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.15)" }}>
+            <div className="text-slate-500">3</div>
+            <div className="font-semibold text-slate-800">Autonomous actions</div>
+          </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(29,78,216,0.15)" }}>
+            <div className="text-slate-500">4</div>
+            <div className="font-semibold text-slate-800">Upgradeable registry</div>
+          </div>
+        </div>
       </div>
 
       <section className="rounded-xl p-5" style={{ background: "#ffffff", border: "1px solid rgba(0,0,0,0.10)" }}>

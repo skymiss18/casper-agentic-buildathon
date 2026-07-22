@@ -84,8 +84,8 @@ Early call: from 15 July 2029 with 30-day notice at par + make-whole premium (Tr
 Governing law: SFC; Clifford Chance LLP
 
 ═══ YIELD SOURCES ═══
-Ondo USDY: 5.0% APY, 40% portfolio allocation (USD T-bill yield)
-mETH Protocol: 3.8% APY, 35% allocation (ETH staking)
+CSPR (native, liquid): ~5.0% APY, 40% portfolio allocation (no lock-up)
+Staked CSPR (sCSPR): ~10.85% APY, 35% allocation (native validator delegation yield)
 REIT Dividends: 4.2% APY, 25% allocation (quarterly distributions)
 
 ═══ INSTRUCTIONS ═══

@@ -15,7 +15,7 @@ const ISSUER_LINKS = [
 
 // Investor — professional or retail investor subscribing to tokens
 const INVESTOR_LINKS = [
-  { href: "/kyc",       step: "1", label: "Submit KYC",   desc: "AMLO identity verification & suitability assessment", isTool: false },
+  { href: "/kyc",       step: "1", label: "Submit KYC",   desc: "Off-chain identity review with ZK-backed on-chain eligibility", isTool: false },
   { href: "/subscribe", step: "2", label: "Subscribe",    desc: "Place a token subscription order",                   isTool: false },
   { href: "/portfolio", step: "3", label: "My Portfolio", desc: "Track token holdings & yield income",                isTool: false },
 ];
@@ -26,8 +26,8 @@ const INVESTOR_LINKS = [
 const INTERMEDIARY_LINKS = [
   { href: "/compliance", step: "1", label: "Compliance Check",  desc: "AI review & SFC filing on behalf of Issuer (pre-authorisation)", isTool: false },
   { href: "/audit",      step: "2", label: "Contract Audit",    desc: "Smart contract technical due diligence before deployment",        isTool: false },
-  { href: "/admin/kyc",  step: "3", label: "KYC Review",       desc: "AMLO CDD — review & approve investor identity filings",           isTool: false },
-  { href: "/evidence",   step: "4", label: "Evidence",         desc: "Live proof board for deployments, KYC lifecycle, and subscriptions", isTool: false },
+  { href: "/admin/kyc",  step: "3", label: "KYC Review",       desc: "Agent-assisted approve/update/revoke workflow for credentials",      isTool: false },
+  { href: "/evidence",   step: "4", label: "Evidence",         desc: "Judge-facing board for AI checks, ZK commitments, and Casper proofs", isTool: false },
 ];
 
 // SFC — Securities and Futures Commission, the primary securities regulator

@@ -72,11 +72,16 @@ type SubscriptionInvestorRecord = {
   contractHash?: string;
   investorPublicKey: string;
   tokenCount: number;
+  refNum?: string;
   paymentRef: string;
   paymentTxHash: string;
   mintTxHash: string;
+  paymentStatus?: "Pending" | "Confirmed" | "Failed" | "Rejected";
   mintStatus?: string;
+  pendingReason?: string | null;
+  error?: string | null;
   createdAt: string;
+  updatedAt?: string;
 };
 
 const MIN_CSPR_TRANSFER_MOTES = 2_500_000_000n;
@@ -86,6 +91,8 @@ const SUBSCRIPTION_FEE_BPS = 25n; // 0.25%
 
 const DEFAULT_PAYMENT_FINALITY_WAIT_MS = 45_000;
 const DEFAULT_PAYMENT_FINALITY_POLL_MS = 3_000;
+const DEFAULT_BACKGROUND_FINALITY_WAIT_MS = 8 * 60_000;
+const DEFAULT_BACKGROUND_FINALITY_POLL_MS = 5_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -279,6 +286,10 @@ function upsertInvestorRecord(record: SubscriptionInvestorRecord) {
   writeInvestorRecords(all.slice(0, 2000));
 }
 
+function findInvestorRecord(paymentRef: string) {
+  return readInvestorRecords().find((item) => item.paymentRef === paymentRef) ?? null;
+}
+
 function readJsonFile<T>(fileName: string, fallback: T): T {
   try {
     const filePath = join(process.cwd(), "data", fileName);
@@ -369,6 +380,166 @@ async function waitForCasperPaymentFinality(input: {
     latest = await verifyCasperNativeTransfer(input);
   }
   return latest;
+}
+
+async function waitForCasperPaymentFinalityInBackground(input: {
+  transactionHash: string;
+  expectedSenderPublicKey: string;
+  expectedRecipientPublicKey?: string;
+  expectedMinimumMotes: string;
+  expectedTransferId?: number;
+}) {
+  const waitMs = Number(process.env.CASPER_SUBSCRIBE_BACKGROUND_FINALITY_WAIT_MS ?? DEFAULT_BACKGROUND_FINALITY_WAIT_MS);
+  const pollMs = Number(process.env.CASPER_SUBSCRIBE_BACKGROUND_FINALITY_POLL_MS ?? DEFAULT_BACKGROUND_FINALITY_POLL_MS);
+  const deadline = Date.now() + Math.max(0, Number.isFinite(waitMs) ? waitMs : DEFAULT_BACKGROUND_FINALITY_WAIT_MS);
+  const interval = Math.max(1_000, Number.isFinite(pollMs) ? pollMs : DEFAULT_BACKGROUND_FINALITY_POLL_MS);
+
+  let latest = await verifyCasperNativeTransfer(input);
+  while (!latest.ok && latest.status === "Pending" && Date.now() < deadline) {
+    await sleep(interval);
+    latest = await verifyCasperNativeTransfer(input);
+  }
+  return latest;
+}
+
+async function processPendingCasperSubscription(input: {
+  paymentRef: string;
+  paymentTxHash: string;
+  casperPublicKey: string;
+  assetName: string;
+  assetId: string;
+  tokenCount: number;
+  deploymentId?: string;
+  contractHash: string;
+  refNum: string;
+  kycWalletAddress: string;
+  expectedPaymentMotes: string;
+  expectedTransferId?: number;
+  matchedKycRecord?: KycRecord | null;
+}) {
+  try {
+    const paymentVerification = await waitForCasperPaymentFinalityInBackground({
+      transactionHash: input.paymentTxHash,
+      expectedSenderPublicKey: input.casperPublicKey,
+      expectedRecipientPublicKey: getTreasuryPublicKey(),
+      expectedMinimumMotes: input.expectedPaymentMotes,
+      expectedTransferId: input.expectedTransferId,
+    });
+
+    if (!paymentVerification.ok) {
+      upsertInvestorRecord({
+        assetId: input.assetId,
+        assetName: input.assetName,
+        deploymentId: input.deploymentId,
+        contractHash: input.contractHash,
+        investorPublicKey: input.casperPublicKey,
+        tokenCount: input.tokenCount,
+        refNum: input.refNum,
+        paymentRef: input.paymentRef,
+        paymentTxHash: input.paymentTxHash,
+        mintTxHash: "",
+        paymentStatus: paymentVerification.status,
+        mintStatus: "PendingFinality",
+        pendingReason: paymentVerification.reason ?? "Waiting for Casper payment finality.",
+        error: paymentVerification.status === "Failed" ? (paymentVerification.reason ?? "Payment verification failed") : null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const mintResult = await mintCasperTokenCoupon({
+      contractHash: input.contractHash,
+      investorPublicKey: input.casperPublicKey,
+      amount: String(input.tokenCount),
+      paymentRef: input.paymentRef,
+    });
+
+    upsertInvestorRecord({
+      assetId: input.assetId,
+      assetName: input.assetName,
+      deploymentId: input.deploymentId,
+      contractHash: input.contractHash,
+      investorPublicKey: input.casperPublicKey,
+      tokenCount: input.tokenCount,
+      refNum: input.refNum,
+      paymentRef: input.paymentRef,
+      paymentTxHash: input.paymentTxHash,
+      mintTxHash: mintResult.deployHash,
+      paymentStatus: paymentVerification.status,
+      mintStatus: mintResult.status,
+      pendingReason: mintResult.pendingReason ?? null,
+      error: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (input.matchedKycRecord?.nullifierHash) {
+      recordNullifierUsage({
+        nullifierHash: input.matchedKycRecord.nullifierHash,
+        walletAddress: input.kycWalletAddress,
+        assetName: input.assetName,
+        usedAt: new Date().toISOString(),
+        credentialVerifiedAt: input.matchedKycRecord.zkVerifiedAt ?? null,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Background payment confirmation failed";
+    upsertInvestorRecord({
+      assetId: input.assetId,
+      assetName: input.assetName,
+      deploymentId: input.deploymentId,
+      contractHash: input.contractHash,
+      investorPublicKey: input.casperPublicKey,
+      tokenCount: input.tokenCount,
+      refNum: input.refNum,
+      paymentRef: input.paymentRef,
+      paymentTxHash: input.paymentTxHash,
+      mintTxHash: "",
+      paymentStatus: "Failed",
+      mintStatus: "Failed",
+      pendingReason: null,
+      error: message,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const paymentRef = req.nextUrl.searchParams.get("paymentRef")?.trim();
+  if (!paymentRef) {
+    return NextResponse.json({ error: "paymentRef is required" }, { status: 400 });
+  }
+
+  const record = findInvestorRecord(paymentRef);
+  if (!record) {
+    return NextResponse.json({ found: false, status: "Pending", message: "Subscription request accepted; waiting for record initialization." }, { status: 202 });
+  }
+
+  const mintStatus = String(record.mintStatus ?? "PendingFinality");
+  const normalizedMint = mintStatus.toLowerCase();
+  const isDone = normalizedMint === "minted" || normalizedMint === "submitted";
+  const isFailed = normalizedMint.includes("fail") || record.paymentStatus === "Failed";
+  const paymentStatus = record.paymentStatus ?? (isDone ? "Confirmed" : isFailed ? "Failed" : "Pending");
+
+  return NextResponse.json({
+    found: true,
+    paymentRef,
+    paymentTxHash: record.paymentTxHash,
+    mintTxHash: record.mintTxHash || null,
+    paymentStatus,
+    mintStatus: record.mintStatus ?? null,
+    done: isDone,
+    failed: isFailed,
+    pendingReason: record.pendingReason ?? null,
+    error: record.error ?? null,
+    message: isDone
+      ? "Payment confirmed and token credit recorded."
+      : isFailed
+        ? (record.error ?? "Payment confirmation or minting failed.")
+        : (record.pendingReason ?? "Waiting for Casper payment finality and token credit."),
+  });
 }
 
 // POST /api/subscribe
@@ -492,44 +663,7 @@ export async function POST(req: NextRequest) {
       }
 
       const expectedMotes = expectedPaymentMotes(assetName, tokenCount);
-      const paymentVerification = await waitForCasperPaymentFinality({
-        transactionHash: paymentTxHash,
-        expectedSenderPublicKey: casperPublicKey,
-        expectedRecipientPublicKey: getTreasuryPublicKey(),
-        expectedMinimumMotes: expectedMotes.toString(),
-        expectedTransferId: refToTransferId(refNum),
-      });
-
-      if (!paymentVerification.ok) {
-        const responseStatus = paymentVerification.status === "Pending" ? 202 : 422;
-        return NextResponse.json({
-          eligible: true,
-          onChain: false,
-          txHash: null,
-          paymentTxHash,
-          paymentStatus: paymentVerification.status,
-          paymentVerification,
-          expectedPaymentMotes: expectedMotes.toString(),
-          assetId: deployment.assetId ?? makeAssetIdCasper(assetName),
-          assetName,
-          tokenCount,
-          walletAddress: kycWalletAddress,
-          casperPublicKey,
-          refNum,
-          message: paymentVerification.status === "Pending"
-            ? "CSPR payment has been submitted but is still pending Casper finality after automatic retries. Please retry confirmation in a moment."
-            : paymentVerification.reason ?? "CSPR payment verification failed; RWA token credit was not minted.",
-        }, { status: responseStatus });
-      }
-
       const paymentRef = `${refNum}:${paymentTxHash}`;
-      const mintResult = await mintCasperTokenCoupon({
-        contractHash: deployment.contractHash,
-        investorPublicKey: casperPublicKey,
-        amount: String(tokenCount),
-        paymentRef,
-      });
-
       upsertInvestorRecord({
         assetId: deployment.assetId ?? makeAssetIdCasper(assetName),
         assetName,
@@ -537,31 +671,44 @@ export async function POST(req: NextRequest) {
         contractHash: deployment.contractHash,
         investorPublicKey: casperPublicKey,
         tokenCount,
+        refNum,
         paymentRef,
         paymentTxHash,
-        mintTxHash: mintResult.deployHash,
-        mintStatus: mintResult.status,
+        mintTxHash: "",
+        paymentStatus: "Pending",
+        mintStatus: "PendingFinality",
+        pendingReason: "Background confirmation in progress.",
+        error: null,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
 
-      if (matchedKycRecord?.nullifierHash) {
-        recordNullifierUsage({
-          nullifierHash: matchedKycRecord.nullifierHash,
-          walletAddress: kycWalletAddress,
-          assetName,
-          usedAt: new Date().toISOString(),
-          credentialVerifiedAt: matchedKycRecord.zkVerifiedAt ?? null,
-        });
-      }
+      // Fire-and-forget background finality + mint workflow. Best-effort in runtime environments
+      // that may reclaim workers; status polling can safely retrigger via future API extensions.
+      void processPendingCasperSubscription({
+        paymentRef,
+        paymentTxHash,
+        casperPublicKey,
+        assetName,
+        assetId: deployment.assetId ?? makeAssetIdCasper(assetName),
+        tokenCount,
+        deploymentId: deployment.deploymentId,
+        contractHash: deployment.contractHash,
+        refNum,
+        kycWalletAddress,
+        expectedPaymentMotes: expectedMotes.toString(),
+        expectedTransferId: refToTransferId(refNum),
+        matchedKycRecord,
+      });
 
       return NextResponse.json({
         eligible: true,
-        onChain: true,
-        txHash: mintResult.deployHash,
-        mintTxHash: mintResult.deployHash,
+        onChain: false,
+        txHash: null,
+        mintTxHash: null,
         paymentTxHash,
-        paymentStatus: paymentVerification.status,
-        paymentVerification,
+        paymentRef,
+        paymentStatus: "Pending",
         expectedPaymentMotes: expectedMotes.toString(),
         contractHash: deployment.contractHash,
         assetId: deployment.assetId ?? makeAssetIdCasper(assetName),
@@ -570,13 +717,10 @@ export async function POST(req: NextRequest) {
         walletAddress: kycWalletAddress,
         casperPublicKey,
         refNum,
-        status: mintResult.status,
-        pendingReason: mintResult.pendingReason,
-        explorerUrl: mintResult.explorerUrl,
-        message: mintResult.status === "Minted"
-          ? `${tokenCount} ${assetName} tokens credited on Casper TokenCoupon after confirmed CSPR payment.`
-          : `${tokenCount} ${assetName} token credit submitted on Casper TokenCoupon after confirmed CSPR payment.`,
-      });
+        status: "PendingFinality",
+        pendingReason: "Background confirmation in progress.",
+        message: "CSPR payment accepted. Casper finality check and token credit now run asynchronously in the background.",
+      }, { status: 202 });
     }
 
     const walletAddress: `0x${string}` = rawWalletAddress;

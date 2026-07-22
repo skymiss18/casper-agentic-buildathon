@@ -1,7 +1,19 @@
 ﻿"use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { getCasperWalletProvider } from "@/lib/casper-wallet";
+import { getCasperWalletProvider, connectCasperWallet, signCasperDeploy } from "@/lib/casper-wallet";
+
+function bytesToHex(bytes: Uint8Array | number[]) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+interface CouponInvestor {
+  publicKey: string;
+  tokenCount: number;
+  paymentRef: string;
+  mintTxHash: string;
+  createdAt: string;
+}
 
 type AssetType = "Bond" | "GreenBond" | "REIT" | "TradeReceivable";
 const ASSET_TYPES: { value: AssetType; label: string }[] = [
@@ -158,6 +170,14 @@ export default function TokenizePage() {
   const [deployError,      setDeployError]      = useState<string | null>(null);
   const [walletPublicKey,  setWalletPublicKey]  = useState<string | null>(null);
   const [deployStep,       setDeployStep]       = useState<"idle" | "connecting" | "signingIdentity" | "broadcastingIdentity" | "signingToken" | "broadcastingToken">("idle");
+
+  // ── coupon distribution state ─────────────────────────────────────────────
+  const [investors,        setInvestors]        = useState<CouponInvestor[]>([]);
+  const [investorsLoading, setInvestorsLoading] = useState(false);
+  const [investorsError,   setInvestorsError]   = useState<string | null>(null);
+  const [couponPerToken,   setCouponPerToken]   = useState("1");
+  const [payingKey,        setPayingKey]        = useState<string | null>(null);
+  const [payResults,       setPayResults]       = useState<Record<string, { status: "success" | "error"; txHash?: string; explorerUrl?: string; message?: string }>>({});
 
   async function waitForIdentityRegistryContractHash(recordId: string, attempts = 15, intervalMs = 3_000) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -448,6 +468,79 @@ export default function TokenizePage() {
     }
   }
 
+  const activeDeploy = selected ? deployMap[selected.id] : null;
+
+  useEffect(() => {
+    if (!selected || !activeDeploy || activeDeploy.status !== "Deployed") {
+      setInvestors([]);
+      return;
+    }
+    let active = true;
+    setInvestorsLoading(true);
+    setInvestorsError(null);
+    const params = new URLSearchParams({ deploymentId: selected.id });
+    if (activeDeploy.assetId) params.set("assetId", activeDeploy.assetId);
+    if (selected.asset) params.set("assetName", selected.asset);
+    fetch(`/api/tokenize/coupon-payout/investors?${params.toString()}`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { investors?: CouponInvestor[]; error?: string }) => {
+        if (!active) return;
+        if (data.error) throw new Error(data.error);
+        setInvestors(data.investors ?? []);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setInvestorsError(err instanceof Error ? err.message : "Failed to load investors");
+      })
+      .finally(() => { if (active) setInvestorsLoading(false); });
+    return () => { active = false; };
+  }, [selected, activeDeploy]);
+
+  async function handlePayCoupon(investor: CouponInvestor) {
+    const perToken = Number(couponPerToken);
+    if (!Number.isFinite(perToken) || perToken <= 0) {
+      setPayResults((prev) => ({ ...prev, [investor.publicKey]: { status: "error", message: "Enter a valid coupon amount per token (CSPR)" } }));
+      return;
+    }
+    setPayingKey(investor.publicKey);
+    setPayResults((prev) => { const next = { ...prev }; delete next[investor.publicKey]; return next; });
+    try {
+      const amountMotes = BigInt(Math.round(investor.tokenCount * perToken * 1_000_000_000)).toString();
+      const { publicKey: senderPublicKeyHex } = await connectCasperWallet();
+      const refNum = `coupon:${activeDeploy?.assetId ?? selected?.id ?? ""}:${investor.publicKey.slice(0, 12)}:${Date.now()}`;
+
+      const buildRes = await fetch("/api/tokenize/coupon-payout/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderPublicKeyHex, recipientPublicKeyHex: investor.publicKey, amountMotes, refNum }),
+      });
+      const buildData = await buildRes.json() as { deployJson?: unknown; error?: string };
+      if (!buildRes.ok || !buildData.deployJson) {
+        throw new Error(buildData.error ?? "Failed to build coupon payout transfer");
+      }
+
+      const signature = await signCasperDeploy(buildData.deployJson, senderPublicKeyHex);
+      const signatureHex = signature.signatureHex ?? (signature.signature ? bytesToHex(signature.signature) : undefined);
+      if (!signatureHex) throw new Error("Casper Wallet did not return signatureHex");
+
+      const submitRes = await fetch("/api/subscribe/casper-transfer/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deployJson: buildData.deployJson, signatureHex, signingPublicKeyHex: senderPublicKeyHex }),
+      });
+      const submitData = await submitRes.json() as { txHash?: string; transactionHash?: string; explorerUrl?: string; error?: string };
+      const txHash = submitData.transactionHash ?? submitData.txHash;
+      if (!submitRes.ok || !txHash) {
+        throw new Error(submitData.error ?? "Failed to broadcast coupon payout");
+      }
+      setPayResults((prev) => ({ ...prev, [investor.publicKey]: { status: "success", txHash, explorerUrl: submitData.explorerUrl } }));
+    } catch (err) {
+      setPayResults((prev) => ({ ...prev, [investor.publicKey]: { status: "error", message: err instanceof Error ? err.message : "Payment failed" } }));
+    } finally {
+      setPayingKey(null);
+    }
+  }
+
   const counts = {
     All: records.length,
     "Approved": records.filter((r) => r.status === "Approved").length,
@@ -460,7 +553,7 @@ export default function TokenizePage() {
     : filter === "Deployed"
       ? records.filter((r) => !!deployMap[r.id])
       : records.filter((r) => r.status === filter);
-  const deploy = selected ? deployMap[selected.id] : null;
+  const deploy = activeDeploy;
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1025,17 +1118,54 @@ export default function TokenizePage() {
                     <p className="text-[11px] text-slate-600 leading-relaxed">
                       Issuance metadata is now deployed through the Casper TokenCoupon WASM flow. Coupon distribution records can be added through the deployed Casper contract as the servicing module expands.
                     </p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Link href="/portfolio"
-                        className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold text-white transition-opacity hover:opacity-90"
-                        style={{ background: "#059669", border: "1px solid #047857" }}>
-                        Distribute Coupon
-                      </Link>
+                    <div className="flex flex-wrap gap-2 pt-1 items-center">
+                      <span className="text-[11px] text-slate-600">Distribute Coupon</span>
                       <Link href="/portfolio"
                         className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors hover:text-slate-900"
                         style={{ color: "#0f766e", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(15,118,110,0.18)" }}>
                         View Coupon History
                       </Link>
+                    </div>
+
+                    <div className="pt-2 space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Invested Investors</div>
+                      {investorsLoading && <p className="text-[11px] text-slate-500">Loading investors…</p>}
+                      {investorsError && <p className="text-[11px] text-red-600">{investorsError}</p>}
+                      {!investorsLoading && !investorsError && investors.length === 0 && (
+                        <p className="text-[11px] text-slate-500">No confirmed subscriptions for this asset yet.</p>
+                      )}
+                      {investors.map((investor) => {
+                        const result = payResults[investor.publicKey];
+                        const perToken = Number(couponPerToken) || 0;
+                        const payoutCspr = (investor.tokenCount * perToken).toLocaleString("en-US", { maximumFractionDigits: 4 });
+                        return (
+                          <div key={investor.publicKey} className="rounded-lg p-2.5 flex flex-wrap items-center gap-2"
+                            style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-mono text-[11px] text-slate-800 truncate" title={investor.publicKey}>{investor.publicKey}</div>
+                              <div className="text-[10px] text-slate-500">{investor.tokenCount} tokens · payout {payoutCspr} CSPR</div>
+                              {result?.status === "success" && (
+                                <div className="text-[10px] text-emerald-700 truncate">
+                                  ✅ Paid ·{" "}
+                                  {result.explorerUrl
+                                    ? <a href={result.explorerUrl} target="_blank" rel="noopener noreferrer" className="underline">{result.txHash}</a>
+                                    : result.txHash}
+                                </div>
+                              )}
+                              {result?.status === "error" && (
+                                <div className="text-[10px] text-red-600 truncate">✗ {result.message}</div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => void handlePayCoupon(investor)}
+                              disabled={payingKey === investor.publicKey}
+                              className="shrink-0 px-3 py-1.5 text-[10px] font-semibold rounded-lg text-white transition-opacity disabled:opacity-50 hover:opacity-90"
+                              style={{ background: "#059669", border: "1px solid #047857" }}>
+                              {payingKey === investor.publicKey ? "Waiting for Casper Wallet…" : "💸 Pay via Casper Wallet"}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
