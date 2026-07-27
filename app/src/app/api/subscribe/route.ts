@@ -76,7 +76,7 @@ type SubscriptionInvestorRecord = {
   paymentRef: string;
   paymentTxHash: string;
   mintTxHash: string;
-  paymentStatus?: "Pending" | "Confirmed" | "Failed" | "Rejected";
+  paymentStatus?: "Pending" | "Confirmed" | "Failed" | "Rejected" | "Skipped";
   mintStatus?: string;
   pendingReason?: string | null;
   error?: string | null;
