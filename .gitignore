@@ -79,7 +79,13 @@ coverage/
 !/README.md
 
 # --- Rust build artifacts ---
-app/contracts-casper/target/
+app/contracts-casper/target/*
+!app/contracts-casper/target/wasm32-unknown-unknown/
+app/contracts-casper/target/wasm32-unknown-unknown/*
+!app/contracts-casper/target/wasm32-unknown-unknown/release/
+app/contracts-casper/target/wasm32-unknown-unknown/release/*
+!app/contracts-casper/target/wasm32-unknown-unknown/release/token_coupon_build_contract.min.wasm
+!app/contracts-casper/target/wasm32-unknown-unknown/release/identity_registry_build_contract.nobulk.wasm
 app/contracts-casper/.cargo/
 app/contracts-casper/Cargo.lock
 
