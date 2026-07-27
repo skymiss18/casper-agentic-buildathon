@@ -2,13 +2,13 @@
 
 **NexusRWA** is an agentic, AI-assisted Real-World Asset (RWA) issuance platform built for the **Casper Agentic Buildathon 2026 - Final Round** (Casper Innovation Track: Agentic AI x DeFi x RWA). It lets an issuer draft an offering, have an AI agent score it against jurisdictional compliance rules, route it through human regulator/KYC review, and then mint, subscribe, and settle a coupon-bearing token whose full lifecycle is recorded on **Casper Testnet**.
 
-The project directly targets the buildathon's "AI-Driven Compliance & KYC" and "RWA Oracle Agent" build directions: an AI agent handles document analysis and compliance scoring off-chain, is designed to anchor verifiable evidence on-chain via a Rust/Odra `ComplianceOracle` contract (Testnet deployment pending, see [Judge Quick Proof](#judge-quick-proof-3-5-minute-scan)), and gates minting/subscription through an on-chain `IdentityRegistry` already live on Casper Testnet, while humans (regulator, KYC admin) retain final authority — combining autonomous AI agency with trust-minimized, auditable on-chain state.
+The project directly targets the buildathon's "AI-Driven Compliance & KYC" and "RWA Oracle Agent" build directions: an AI agent handles document analysis and compliance scoring off-chain, is designed to anchor verifiable evidence on-chain via a Rust/Odra `ComplianceOracle` contract (Testnet deployment pending), and gates minting/subscription through an on-chain `IdentityRegistry` already live on Casper Testnet, while humans (regulator, KYC admin) retain final authority — combining autonomous AI agency with trust-minimized, auditable on-chain state.
 
 ## Why This Project Fits the Final Round
 
 | Judging Criterion | How NexusRWA Delivers |
 |---|---|
-| **Technical Execution** | Three Rust/Odra smart contracts (`ComplianceOracle`, `IdentityRegistry`, `TokenCoupon`). `IdentityRegistry` and `TokenCoupon` are deployed and tested on Casper Testnet with live deploy hashes (see [Judge Quick Proof](#judge-quick-proof-3-5-minute-scan)); `ComplianceOracle` ships complete Rust/Odra source and passes local unit tests, with Testnet deployment as the next step. Backed by a Next.js/TypeScript app with real API routes, not just static mockups. See [Architecture](#architecture). |
+| **Technical Execution** | Three Rust/Odra smart contracts (`ComplianceOracle`, `IdentityRegistry`, `TokenCoupon`). `IdentityRegistry` and `TokenCoupon` are deployed and tested on Casper Testnet with live deploy hashes recorded in `app/data/deployments.json`; `ComplianceOracle` ships complete Rust/Odra source and passes local unit tests, with Testnet deployment as the next step. Backed by a Next.js/TypeScript app with real API routes, not just static mockups. See [Architecture](#architecture). |
 | **Innovation & Originality** | Combines AI-generated compliance scoring, on-chain score anchoring, and identity-gated token minting into a single reproducible pipeline — an agentic compliance officer that a human can audit and override. |
 | **Use of AI / Agentic Systems** | An AI agent drafts prospectus content, scores it against `app/compliance-rules/sfc-rules.json`, and produces a report hash that is submitted on-chain; an advisor flow assists investors during subscription. |
 | **Real-World Applicability** | Rules model real securities-style compliance concepts (issuer disclosure, investor eligibility, coupon terms) and include asset-class packs for bonds, trade receivables, green bonds, and REITs. |
@@ -23,9 +23,9 @@ Per the official Final Round rules (`document/finalround.md`), every project mus
 
 | Required Item | Where It Is |
 |---|---|
-| Working prototype on Casper Testnet with a transaction-producing on-chain component | [Judge Quick Proof](#judge-quick-proof-3-5-minute-scan) and `app/data/deployments.json` |
+| Working prototype on Casper Testnet with a transaction-producing on-chain component | `app/data/deployments.json` and `FINAL_SUBMISSION_ADDRESSES.md` |
 | Open-source GitHub repository with README + usage instructions | This repository, plus [Quick Start](#quick-start) and [Reviewer Playbook](#reviewer-playbook-no-marketing-8-12-minutes) |
-| Public demo video | See [Demo and BUIDL Links](#demo-and-buidl-links) (replace placeholder before final submission) |
+| Public demo video | See Demo and BUIDL Links |
 
 
 ## Repository Metadata (GitHub)
@@ -61,7 +61,7 @@ Current repository already includes CI workflow:
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Working prototype on Casper Testnet with transaction-producing on-chain component | Complete | Deploy record in `app/data/deployments.json` and explorer link below |
+| Working prototype on Casper Testnet with transaction-producing on-chain component | Complete | Deploy record in `app/data/deployments.json` |
 | Open-source repository with README and usage instructions | Complete | This repository + setup/run steps below |
 | Public demo video | Pending link update | Add final public URL in Demo section |
 
@@ -99,9 +99,7 @@ cd app/contracts-casper && cargo audit
 If any High/Critical issue appears, patch and re-run before final submission.
 
 
-## Demo and BUIDL Links
 
-- Demo video: `https://www.youtube.com/watch?v=KEVAw85oWQU`
 
 ## What This Project Does
 
@@ -115,70 +113,6 @@ NexusRWA is a full workflow for regulated-style token issuance:
 6. Coupon metadata and investor balances are recorded on-chain.
 
 This repository focuses on a working Casper prototype for the buildathon round.
-
-## Judge Quick Proof (3-5 Minute Scan)
-
-### 1) Casper On-Chain Deployment Proof
-
-Source of truth: `app/data/deployments.json` (values below pulled directly from that file, latest asset first).
-
-| Item | Value |
-|---|---|
-| Network | Casper Testnet |
-| Deploy hash | `d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086` |
-| Explorer | https://testnet.cspr.live/deploy/d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086 |
-| Contract hash | `contract-e1b99cd7d1fa641985b1bc905386e899c92eb57fe4334378cb72225555f293d5` |
-| Asset id | `nibt3` |
-| Standard | Casper Token/Coupon WASM |
-
-## Contract Package Hashes and Testnet Transactions
-
-Use this table directly on your BUIDL page.
-
-### A) Contract Registry (Casper Testnet)
-
-| Contract | Contract Hash | Deploy Hash | Explorer | Description |
-|---|---|---|---|---|
-| TokenCoupon (`nibt3`) | `contract-e1b99cd7d1fa641985b1bc905386e899c92eb57fe4334378cb72225555f293d5` | `d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086` | [view](https://testnet.cspr.live/deploy/d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086) | Core token/coupon lifecycle state |
-| IdentityRegistry (`nibt3`) | `contract-78a2b7e6b82b5947cddee6c64c00ff322575ae605e687ad74ea95dc1f9f173a1` | `59039803c5faa6274a72ead0b499ddaba55e899ebd3a3afe78bb4166426015de` | [view](https://testnet.cspr.live/deploy/59039803c5faa6274a72ead0b499ddaba55e899ebd3a3afe78bb4166426015de) | Investor eligibility/KYC registry |
-| TokenCoupon (`nibt1`) | `contract-867c8545780e44d9df6753e974442a10f7edb912f8da336b1c4270dfc939be41` | `d1eec691d1ae4b4d625489bf55508f923081a91f497234029a6bb24bb1e2cfc3` | [view](https://testnet.cspr.live/deploy/d1eec691d1ae4b4d625489bf55508f923081a91f497234029a6bb24bb1e2cfc3) | Core token/coupon lifecycle state |
-| IdentityRegistry (`nibt1`) | `contract-b08fe30bbb01db2100b7120b95dbb09fab39f880dd7a860c7a5179225675ba94` | `454bfb1f72a6ce9a9c3cf516e0dfebdb886f77b5f66253b9c41b8ce08d271e2b` | [view](https://testnet.cspr.live/deploy/454bfb1f72a6ce9a9c3cf516e0dfebdb886f77b5f66253b9c41b8ce08d271e2b) | Investor eligibility/KYC registry |
-| ComplianceOracle | — | — | Not yet deployed to Testnet | Source and unit tests complete (`app/contracts-casper/compliance-oracle`); deployment is the next verification step — see `deploy-casper-contracts.ps1` step 3 |
-
-Casper does not expose a separate on-chain "package hash" for these deploys distinct from the contract hash, so only Contract Hash / Deploy Hash are listed above.
-
-### B) Sample Testnet Transactions
-
-| Tx Type | Deploy / Tx Hash | Explorer | Expected Outcome |
-|---|---|---|---|
-| Deploy TokenCoupon (`nibt3`) | `d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086` | [view](https://testnet.cspr.live/deploy/d393a8e57cfd7f8dac7116b17fe2b867c74de3db30edd974ae3af15357660086) | Token coupon contract available on Casper Testnet |
-| Deploy IdentityRegistry (`nibt3`) | `59039803c5faa6274a72ead0b499ddaba55e899ebd3a3afe78bb4166426015de` | [view](https://testnet.cspr.live/deploy/59039803c5faa6274a72ead0b499ddaba55e899ebd3a3afe78bb4166426015de) | Identity registry contract available on Casper Testnet |
-| Deploy TokenCoupon (`nibt1`) | `d1eec691d1ae4b4d625489bf55508f923081a91f497234029a6bb24bb1e2cfc3` | [view](https://testnet.cspr.live/deploy/d1eec691d1ae4b4d625489bf55508f923081a91f497234029a6bb24bb1e2cfc3) | Token coupon contract available on Casper Testnet |
-| Investor subscription payment (`nibt3`) | `a5a4ccca06b57d9e3bf5f6d0f2f3ce8bbc958f0759eaab42568bac4f447890a6` | [view](https://testnet.cspr.live/deploy/a5a4ccca06b57d9e3bf5f6d0f2f3ce8bbc958f0759eaab42568bac4f447890a6) | Payment transaction submitted from `/subscribe` flow (see `app/data/subscriptions.json`) |
-
-All hashes above are read directly from `app/data/deployments.json` and `app/data/subscriptions.json`. Record new hashes from your latest final demo run and keep them synchronized with those files.
-
-### 2) Smart Contracts Implemented in Rust/Odra
-
-- `app/contracts-casper/compliance-oracle/src/lib.rs`
-  - `submit_score(asset_id, score, report_hash)`
-  - `get_score(asset_id)`
-  - `is_compliant(asset_id, threshold)`
-- `app/contracts-casper/identity-registry/src/lib.rs`
-  - `upsert_investor(...)`
-  - `is_eligible(investor)`
-  - `revoke_investor(investor)`
-- `app/contracts-casper/token-coupon/src/lib.rs`
-  - `init(...)`
-  - `mint_to(...)`, `subscribe(...)`, `settle_purchase(...)`
-  - `record_coupon(...)`
-  - `balance_of(...)`, `get_coupon(...)`, `get_metadata()`
-
-### 3) Compliance Ruleset in Repository
-
-- Rule source: `app/compliance-rules/sfc-rules.json`
-- Includes core SFC rules plus asset-class extensions (bond, trade receivable, green bond, REIT).
-- The bond demo corpus is provided in `app/test/HIBT-Prospectus.txt`.
 
 ## Architecture
 
@@ -417,16 +351,7 @@ app/
     lib/
 ```
 
-## Notes for Final Submission
 
-- Replace demo video placeholder with public URL (`<PASTE_PUBLIC_DEMO_VIDEO_URL>` in [Demo and BUIDL Links](#demo-and-buidl-links)).
-- Replace BUIDL page and website placeholders (`<PASTE_BUIDL_PAGE_URL>`, `<BUIDL_OR_PROJECT_URL>`).
-- Ensure repository metadata (description, website, topics) is set in GitHub Settings.
-- Community health files added under `.github/` (`CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`) — verify GitHub's community profile checklist shows 100%.
-- CodeQL workflow (`.github/workflows/codeql.yml`) and Dependabot (`.github/dependabot.yml`) added — confirm both run successfully in the Actions tab and resolve any High/Critical alerts before final submission.
-- Deploy `ComplianceOracle` to Casper Testnet (`deploy-casper-contracts.ps1`) and fill its row in [Contract Registry](#a-contract-registry-casper-testnet) once a real deploy/contract hash exists — do not fabricate a hash.
-- Keep deploy hashes in this README synchronized with `app/data/deployments.json` and `app/data/subscriptions.json`.
-- If a new deploy is used in the final demo, update both this README and explorer links together.
 
 ## License
 

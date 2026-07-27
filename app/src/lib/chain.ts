@@ -1,13 +1,25 @@
-import { createPublicClient, createWalletClient, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, fallback, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { defineChain } from "viem";
+
+const mantleTestnetRpcUrls = Array.from(new Set([
+  process.env.MANTLE_TESTNET_RPC,
+  process.env.MANTLE_TESTNET_RPC_FALLBACK,
+  "https://rpc.sepolia.mantle.xyz",
+].filter((url): url is string => Boolean(url))));
+
+const mantleMainnetRpcUrls = Array.from(new Set([
+  process.env.MANTLE_MAINNET_RPC,
+  process.env.MANTLE_MAINNET_RPC_FALLBACK,
+  "https://rpc.mantle.xyz",
+].filter((url): url is string => Boolean(url))));
 
 export const mantleTestnet = defineChain({
   id: 5003,
   name: "Mantle Sepolia Testnet",
   nativeCurrency: { name: "MNT", symbol: "MNT", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.MANTLE_TESTNET_RPC ?? "https://mantle-sepolia.drpc.org"] },
+    default: { http: mantleTestnetRpcUrls },
   },
   blockExplorers: {
     default: { name: "MantleScan", url: "https://sepolia.mantlescan.xyz" },
@@ -19,7 +31,7 @@ export const mantleMainnet = defineChain({
   name: "Mantle",
   nativeCurrency: { name: "MNT", symbol: "MNT", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.MANTLE_MAINNET_RPC ?? "https://rpc.mantle.xyz"] },
+    default: { http: mantleMainnetRpcUrls },
   },
   blockExplorers: {
     default: { name: "MantleScan", url: "https://mantlescan.xyz" },
@@ -29,16 +41,20 @@ export const mantleMainnet = defineChain({
 const targetChain =
   process.env.NEXT_PUBLIC_CHAIN_ID === "5000" ? mantleMainnet : mantleTestnet;
 
+const targetTransport = () => fallback(
+  targetChain.rpcUrls.default.http.map((url) => http(url)),
+);
+
 export const publicClient = createPublicClient({
   chain: targetChain,
-  transport: http(),
+  transport: targetTransport(),
 });
 
 export function getWalletClient() {
   const pk = process.env.DEPLOYER_PRIVATE_KEY;
   if (!pk) throw new Error("DEPLOYER_PRIVATE_KEY not set");
   const account = privateKeyToAccount(`0x${pk}` as `0x${string}`);
-  return createWalletClient({ account, chain: targetChain, transport: http() });
+  return createWalletClient({ account, chain: targetChain, transport: targetTransport() });
 }
 
 // ── Contract ABIs (minimal, for oracle interaction) ───────────────────────
